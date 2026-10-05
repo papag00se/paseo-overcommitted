@@ -1,0 +1,6 @@
+{
+  "id": "overcommitted",
+  "description": "Commit and push Paseo worktrees unless known activity blocks them, with protected-branch routing.",
+  "requirements": { "paseo": ">=0.9.1 <0.10.0" },
+  "build": [["npm", "ci", "--omit=dev", "--ignore-scripts", "--fetch-retries=0"]]
+}

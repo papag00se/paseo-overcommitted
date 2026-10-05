@@ -1,0 +1,61 @@
+# Overcommitted
+
+A trusted Paseo 0.9.1 plugin for Linux. Every 60 minutes (configurable), stage, commit and push changes in eligible registered projects and active worktrees. Works with no agents and no connected app.
+
+## Settings
+
+Open **Settings → Plugins → Overcommitted → ⋯ → Settings**, or **Overcommitted settings** in the Command Center. The plugin must be enabled to register its UI; automatic commits can remain off independently.
+
+- Enable/disable automatic commits and pushes (default on).
+- Check interval: 1–10,080 minutes, default 60. Saving restarts the timer; the first check is after one interval, not immediately at install.
+- **Don't push to these branch names automatically:** enable the rule, then enter a comma-separated list of exact, case-sensitive names. The suggested list is `main, master`; the rule is initially off.
+- Indented **Create and push to an interim branch with prefix:** only available when the branch rule is enabled. Defaults to `overcommitted/<current branch name>` (e.g. `overcommitted/master`). A plain prefix also appends the source branch name. If this option is off, protected branches stay untouched; any unpushed work triggers the persistent **Work not pushed** warning with instructions to enable interim routing or push manually.
+- **Preview** checks eligibility without staging, committing, switching or pushing. **Check now** performs the operation immediately. Both use the *saved* settings. Results and skip/error reasons appear below the controls and in plugin logs.
+
+An interim branch stays checked out. Reuse an existing branch only if its local and remote tips are ancestors of the current source HEAD, so advancing it is a fast-forward. A branch checked out in another worktree, a divergent branch, or an incompatible ref namespace is not touched: try `overcommitted/master-2`, `-3`, etc. The protected source ref stays unchanged. Remote ancestry is fetched before making that decision; preview does not fetch, so it may conservatively predict a higher ordinal when objects are missing.
+
+## Scope and idle checks
+
+- Enumerate all directory pages; include registered projects without workspaces and active workspaces without agents. Do not crawl arbitrary folders on disk.
+- Group by real Git worktree root, not branch name. Stage **all** tracked/untracked non-ignored changes in the root, including deletions and previously staged changes. Git cannot determine which agent authored a shared file.
+- **Only positively observed activity vetoes commits and pushes:** running/initializing agents, active turns, pending permissions, active workspace scripts, or attributable jobs. Idle/closed/completed agents are eligible immediately. Unknown/error statuses, unavailable providers and missing activity data do not veto a push. Surviving jobs and descendants are checked independently.
+- Parent-folder agents are activity sources for already-known repositories below that folder, even when idle or closed. For example, an agent in `/Work` with a surviving job blocks known `/Work/repo-a` and `/Work/repo-b`, not `/Work-other/repo-c`. Its process family, delegated agents, workspace scripts and terminals remain in the checks. Parent-folder activity does not establish ownership, permit subagent-only repositories, or discover unregistered child repositories. A quiet parent control runtime alone does not block.
+- Subagent-only worktrees are never automatically committed. Active descendants block their top-level ancestor even across workspaces; closed descendants do not count as running jobs. Shared-worktree busy agents block everyone.
+- Running/needs-input or archiving workspaces and running scripts block. A historical failed workspace state does not establish current activity. **An open terminal alone does not block.** A leaf interactive shell waiting for terminal input is allowed; scripts, shell commands, active builtins and shells with children are not exempt. Terminal/workspace environment IDs and ancestry preserve job association even if a command moves outside its repository.
+- Inspect same-user Linux `/proc` environments (retain only `PASEO_AGENT_ID` and `PASEO_AGENT_CWD`), process ancestry and working directories. Count descendant processes, detached tagged jobs and other processes rooted in the worktree. Recorded parent-folder `PASEO_AGENT_CWD` also blocks known child repositories when a detached job has moved elsewhere or its agent is no longer listed. Exempt only the daemon, plugin process, direct daemon-owned provider control runtimes, and the systemd user manager/PAM infrastructure. Unknown or unreadable process information is surfaced as a **non-blocking warning**. A partially readable process table retains other observed jobs, so uncertainty never erases known activity. Positively observed helper/MCP processes associated with the repository still block.
+- Recheck agent, workspace, terminal and process state before staging, committing, switching and pushing. Check branch/HEAD/index consistency and serialize plugin operations with a common-repository lock.
+
+**Limits:** Paseo 0.9.1 has no atomic idle lease spanning a Git operation. These are repeated observations, not a guarantee against an agent or external editor starting in the final race window. By design, unreadable activity favors committing and pushing; it can therefore miss work in flight. Inspection warnings are attached to the check result, not treated as a reason to leave work unpushed. A detached job that deliberately clears its agent environment, leaves the process tree and moves outside the worktree cannot be attributed by this plugin. Linux provides the process inspection; on other OSes process activity is unknown and reported as a non-blocking warning. Provider-native work is checked through workspace status and associated processes, not by pretending the top-level idle label is sufficient.
+
+## Git behavior
+
+Commit messages are local/deterministic: agent task titles (or an unattended-change summary), staged diff statistics and changed paths. No model calls or code uploads for message generation. Do not expect semantic descriptions of the implementation beyond that evidence.
+
+Use the configured branch upstream remote/ref, otherwise `origin` or the sole remote and the same branch name. Protection checks both the local name and destination name. Push one explicit pinned commit/refspec, never matching branches or tags. Existing commits on that branch are necessarily included in the push. A clean working tree with unpushed local commits is also pushed; no unnecessary commit is created. Never force-push, reset, stash, pull/rebase, bypass hooks, or switch an ordinary unprotected branch. Ignore rules remain in force; non-ignored secrets are included like any other file, so maintain `.gitignore` appropriately.
+
+Missing/ambiguous remotes, detached HEAD, merge/rebase/conflict state, dirty submodules and failed Git operations are reported and left for the user. Known activity defers work; incomplete activity inspection does not. A failed operation may leave changes staged or an interim branch checked out; there is deliberately no destructive rollback. Hooks/signing and normal Git authentication are respected; interactive credential prompts are disabled.
+
+Persist push intent in the worktree Git directory as `overcommitted-pending.json` before staging/committing/pushing, including clean-but-unpushed branches. Failed commits leave files and any staged work intact; failed pushes leave commits intact. Both retry on later eligible checks. A push retry on a clean tree does not create a duplicate commit. A branch/remote change or newly protected destination pauses that journal for manual resolution. Git HTTP rate-limit headers/error waits defer all plugin Git network calls, persisted at `$PASEO_HOME/plugin-data/overcommitted-network-wait.json`; no early or tight-loop retry. HTTP curl traces are consumed for headers, never logged. A bare 429 without a delay defers one hour.
+
+The common Git directory's `overcommitted.lock` is released on ordinary completion/errors. A hard-killed subprocess leaves a conservative stale lock: inspect its recorded PID, confirm no operation is active, then remove that specific lock. Do not remove an active lock. Settings are host-scoped and persisted by Paseo. Last real-check reports and outstanding failures survive reload in `$PASEO_HOME/plugin-data/overcommitted-status.json`. This is **status metadata only**, not a backup or source-file store. Work remains in the repository and the only backup operation is a normal Git push.
+
+## Failure visibility
+
+Git failures and protected branches with unpushed work but no interim route are errors, not successful completion or ordinary activity skips. Activity-inspection failures are warnings and do not prevent commit/push attempts. Partial catalog failures retain activity already observed during the same check. The sidebar shows **Work not pushed (N)** only while undismissed warnings exist. It opens a separate warnings screen, not the settings page. Dismiss individual warnings or all currently shown warnings. Dismissal survives restart and hides only that occurrence: it does not clear the unresolved failure, change Git's pending work, or cancel retries. A subsequent failed attempt becomes visible again. Stale dismissals cannot hide a newer failure. With no visible warnings, the sidebar item disappears; settings remain in the plugin menu.
+
+Undismissed warnings survive restart, skipped checks, and previews. During a disconnect, the indicator retains already-known warnings rather than inventing an undismissable status row. Only a real successful push or verified clean/up-to-date check resolves that repository's underlying failure; absent repositories are not silently forgotten. The next scheduled check retries eligible work, respecting persisted rate-limit waits. No reset, stash, force-push, recovery branch system, or separate backup storage is used.
+
+## Develop / install
+
+```sh
+npm ci --ignore-scripts --fetch-retries=0
+npm run typecheck
+npm test
+paseo plugin install /absolute/path/to/overcommitted
+paseo plugin ls
+paseo plugin logs overcommitted
+```
+
+Plugins must already be enabled on the target daemon. The daemon needs `git`, the matching `paseo` CLI, readable `/proc`, a loopback WebSocket listener, and normal Git author/authentication configuration. `PASEO_HOME` selects the local daemon (default `~/.paseo`); `PASEO_HOST` is deliberately not inherited. Remote hosts require installing the plugin on that host, not operating its files from this machine.
+
+Paseo 0.9.1 only provides a server-side SDK session inside callbacks, not during plugin startup. The scheduler therefore opens/closes a local SDK connection for each sweep; there is no persistent external polling process. Cleanup stops timers and cancels in-flight mutations. Tests use temporary repositories and local bare remotes, never your real remotes.

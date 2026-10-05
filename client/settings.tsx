@@ -1,0 +1,72 @@
+import { useEffect, useState } from "react";
+import { Text, View } from "react-native";
+import { useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
+import { SettingsAction, SettingsCard, SettingsInput, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { checkRpc, preferences, statusRpc, type Preferences } from "../shared/contracts";
+
+export function Settings({ theme, layout }: PluginSurfaceProps) {
+  const settings = useSettings(preferences);
+  const getStatus = useRpc(statusRpc), check = useRpc(checkRpc);
+  const queryClient = useQueryClient();
+  const status = useQuery({ queryKey: ["overcommitted-status"], queryFn: () => getStatus({}), refetchInterval: 15_000 });
+  const action = useMutation({ mutationFn: (preview: boolean) => check({ preview }), onSettled: () => queryClient.invalidateQueries({ queryKey: ["overcommitted-status"] }) });
+  const [draft, setDraft] = useState<{ values: Preferences; revision: string } | null>(null);
+  const [minutes, setMinutes] = useState("60");
+  const [saved, setSaved] = useState(false);
+  const [validation, setValidation] = useState("");
+  useEffect(() => {
+    if (settings.status === "ready" && (!draft || (saved && settings.revision !== draft.revision))) {
+      setDraft({ values: settings.values, revision: settings.revision });
+      setMinutes(String(settings.values.intervalMinutes));
+      setSaved(false);
+    }
+  }, [settings, draft, saved]);
+  const text = { color: theme.colors.foreground };
+  const muted = { color: theme.colors.foregroundMuted };
+  if (settings.status !== "ready" || !draft) return <Text style={text}>{settings.status === "loading" ? "Loading settings…" : settings.status === "ready" ? "Loading editor…" : settings.error}</Text>;
+  const values = draft.values;
+  const change = (patch: Partial<Preferences>) => { setDraft({ ...draft, values: { ...values, ...patch } }); setSaved(false); };
+  async function save() {
+    if (!draft) return;
+    const parsed = preferences.schema.safeParse({ ...draft.values, intervalMinutes: Number(minutes) });
+    if (!parsed.success) { setValidation(parsed.error.issues.map(i => i.message).join("; ")); return; }
+    setValidation("");
+    if (await settings.save(parsed.data, draft.revision)) setSaved(true);
+  }
+  return <View style={{ gap: 16, padding: layout.compact ? 12 : 20, backgroundColor: theme.colors.surface0 }}>
+    <SettingsSection title="Overcommitted">
+      <Text style={muted}>Stage, commit and push non-ignored changes and existing unpushed commits in Paseo worktrees. Closed agents and empty terminal prompts do not block. Active agents, jobs and scripts still do.</Text>
+      <SettingsCard>
+        <SettingsSwitch label="Enable automatic commits and pushes" value={values.enabled} onValueChange={enabled => change({ enabled })} />
+        <SettingsInput label="Check interval (minutes)" initialValue={minutes} onChangeText={setMinutes} hint="Default: 60. From 1 minute to 7 days. Saving restarts the timer." />
+        <SettingsSwitch label="Don't push to these branch names automatically:" value={values.protectBranches} onValueChange={protectBranches => change({ protectBranches })} />
+        <SettingsInput label="Branch names (comma separated)" initialValue={values.protectedBranches} disabled={!values.protectBranches} onChangeText={protectedBranches => change({ protectedBranches })} hint="Exact, case-sensitive branch names, for example: main, master, production" />
+      </SettingsCard>
+      <View style={{ marginLeft: layout.compact ? 16 : 28, opacity: values.protectBranches ? 1 : 0.5 }}>
+        <SettingsCard>
+          <SettingsSwitch label="Create and push to an interim branch with prefix:" value={values.useInterimBranch} disabled={!values.protectBranches} onValueChange={useInterimBranch => change({ useInterimBranch })} />
+          <SettingsInput label="Interim branch prefix" initialValue={values.interimPrefix} disabled={!values.protectBranches || !values.useInterimBranch} onChangeText={interimPrefix => change({ interimPrefix })} hint="overcommitted/<current branch name> → overcommitted/master. A plain prefix also appends the current branch. Diverged or occupied branches get -2, -3, …" />
+        </SettingsCard>
+      </View>
+      <SettingsAction label="Settings" actionLabel={settings.saving ? "Saving…" : "Save settings"} onPress={save} disabled={settings.saving} />
+      {validation || settings.saveError ? <Text style={text}>{validation || settings.saveError}</Text> : null}
+      {saved ? <Text style={muted}>Saved.</Text> : null}
+      <Text style={muted}>Interim branches stay checked out. Disabling the interim option leaves protected branches untouched and raises a persistent warning when work cannot be pushed. No force pushes, stashing, resets or hook bypasses. Unknown or unreadable activity does not block commits or pushes. Only positively observed activity blocks; incomplete checks are shown as warnings.</Text>
+    </SettingsSection>
+    <SettingsSection title="Checks">
+      <Text style={text}>{status.data?.running ? "Checking…" : status.data?.nextCheck ? `Next check: ${new Date(status.data.nextCheck).toLocaleString()}` : "No check scheduled"}</Text>
+      <SettingsCard>
+        <SettingsAction label="Preview eligibility (no staging, commits or checkout)" actionLabel="Preview" disabled={action.isPending || status.data?.running} onPress={() => action.mutate(true)} />
+        <SettingsAction label="Stage, commit and push eligible worktrees now" actionLabel="Check now" disabled={!settings.values.enabled || action.isPending || status.data?.running} onPress={() => action.mutate(false)} />
+      </SettingsCard>
+      {action.error || status.error ? <Text style={text}>{(action.error || status.error)?.message}</Text> : null}
+      {(status.data?.reports ?? []).map((report, index) => <View key={`${report.directory}-${index}`} style={{ gap: 4 }}>
+        <Text style={text}>{report.outcome.toUpperCase()} · {report.directory}</Text>
+        <Text style={muted}>{report.message}</Text>
+        {report.warnings?.map((warning, i) => <Text key={i} style={muted}>Activity warning (not a blocker): {warning}</Text>)}
+        <Text style={muted}>{new Date(report.at).toLocaleString()}</Text>
+      </View>)}
+    </SettingsSection>
+  </View>;
+}
