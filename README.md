@@ -12,18 +12,21 @@
 
 </div>
 
-Keep idle Paseo projects and worktrees committed and pushed. Overcommitted checks registered repositories on a schedule, observes work in progress, and gives unpushed work a visible place in the app.
+💾 Ever lost an afternoon of agent work because nobody committed it?
+
+⏰ Overcommitted checks your Paseo projects and worktrees on a schedule, then commits and pushes anything left sitting there. 🛡️ It waits while an agent, script or terminal is busy. It can route protected branches like `main` to an interim branch instead. ⚠️ If something can't be pushed, it stays flagged in the sidebar until you deal with it.
 
 ## Features
 
 | Feature | What you get |
 | --- | --- |
-| Scheduled Git housekeeping | Configurable checks; default interval is 60 minutes |
-| Activity-aware operations | Observed agent, script, terminal, and Linux process activity defers work |
-| Branch routing | Optional protected-branch rules and interim branches |
-| Persistent failures | Unpushed work stays visible across reloads and later checks |
-| Preview mode | Inspect eligibility without staging, committing, or pushing |
-| Local commit messages | Task titles, changed paths, and diff statistics; no model calls |
+| ⏰ Scheduled Git housekeeping | Checks every 60 minutes by default, from 1 minute to 7 days |
+| 👀 Activity-aware | Busy agents, scripts, terminals and processes put a repo off until later |
+| 🔀 Branch routing | Protect branches like `main` and push their work to `overcommitted/main` instead |
+| 🗂️ Nested repos | Optionally sweeps Git repos inside a project folder |
+| ⚠️ Persistent warnings | Unpushed work stays visible across reloads until it's resolved |
+| 🔍 Preview mode | See what would happen without staging, committing or pushing |
+| ✍️ Local commit messages | Built from task titles, changed paths and diff stats. No model calls |
 
 ## How it fits
 
@@ -49,7 +52,7 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
-Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is an opt-in setting.
+Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is opt-in. In the interim prefix, `<current branch name>` is a placeholder for the protected branch's name: `overcommitted/<current branch name>` turns `main` into `overcommitted/main`. **Save settings** is at the top of the page. Leave settings with **← Back** or <kbd>Esc</kbd>.
 
 ![Overcommitted settings in Paseo: automatic commits, check interval, protected branch names, interim branch prefix and child repository folders](docs/media/settings.png)
 
