@@ -8,6 +8,8 @@ export interface ProcessInfo {
   inspectionIncomplete?: boolean;
   /** Pipe ids of fd 0/1 (null if not a pipe), and every pipe held (agent-tagged processes only). */
   stdin?: string | null; stdout?: string | null; pipes?: string[];
+  /** Named systemd service unit owning the process (cgroup leaf), if any. */
+  service?: string | null;
 }
 export interface ProcessInspection { entries: ProcessInfo[]; warnings: string[] }
 export type ProcessInspector = () => Promise<ProcessInspection | ProcessInfo[]>;
@@ -37,6 +39,13 @@ async function heldPipes(path: string): Promise<string[]> {
     if (id) pipes.push(id);
   }
   return pipes;
+}
+// A user-installed service (e.g. app.slice/chrome-bridge.service). Transient
+// `systemd-run` units (run-*.service) and app scopes (where Paseo and its
+// agents' detached jobs live) are not services.
+export function serviceUnit(cgroup: string): string | null {
+  const leaf = cgroup.trim().split("\n").find(line => line.startsWith("0::"))?.split("/").pop() ?? "";
+  return /^[\w@.:-]+\.service$/.test(leaf) && !/^(run-|user@)/.test(leaf) ? leaf : null;
 }
 const vanished = (e: unknown) => ["ENOENT", "ESRCH"].includes((e as NodeJS.ErrnoException).code ?? "");
 
@@ -72,6 +81,7 @@ export async function processes(procRoot = "/proc"): Promise<ProcessInspection> 
         workspaceId: environment.split("\0").find(x => x.startsWith("PASEO_WORKSPACE_ID="))?.slice(19) || null,
         executable: await readlink(`${path}/exe`), argv: cmdline.split("\0").filter(Boolean),
         state: fields[0], tty: Number(fields[4]), waitChannel: (await readFile(`${path}/wchan`, "utf8")).trim(),
+        service: serviceUnit(await readFile(`${path}/cgroup`, "utf8").catch(() => "")),
         stdin: await fdPipe(`${path}/fd/0`), stdout: await fdPipe(`${path}/fd/1`),
         ...(agentId ? { pipes: await heldPipes(path) } : {}),
       });
@@ -122,6 +132,11 @@ export function idleStdioServer(p: ProcessInfo, runtime: Set<number>, byPid: Map
     !!p.stdin && !!p.stdout && p.stdin !== p.stdout && !!parent.pipes?.includes(p.stdin) && parent.pipes.includes(p.stdout);
 }
 
+/** A user service with no Paseo identity is long-running infrastructure, not agent work. */
+export function userService(p: ProcessInfo): boolean {
+  return !!p.service && !p.agentId && !p.agentCwd && !p.terminalId && !p.workspaceId;
+}
+
 export function processBlocker(all: ProcessInfo[], root: string, agentIds: Set<string>, daemonPid: number, selfPid = process.pid, terminalIds = new Set<string>(), workspaceIds = new Set<string>()): string | null {
   const byPid = new Map(all.map(p => [p.pid, p]));
   // Only daemon-owned provider runtimes (through exec-style launchers) and their
@@ -131,7 +146,7 @@ export function processBlocker(all: ProcessInfo[], root: string, agentIds: Set<s
   // Recorded agent cwd remains useful for detached jobs after the agent is
   // archived/deleted. A parent folder covers its known child repositories;
   // an ordinary untagged shell cwd does not establish that relationship.
-  const associated = (p: ProcessInfo) => (!!p.cwd && inside(root, p.cwd)) || (!!p.agentId && agentIds.has(p.agentId)) ||
+  const associated = (p: ProcessInfo) => (!!p.cwd && inside(root, p.cwd) && !userService(p)) || (!!p.agentId && agentIds.has(p.agentId)) ||
     (!!p.terminalId && terminalIds.has(p.terminalId)) || (!!p.workspaceId && workspaceIds.has(p.workspaceId)) ||
     (!!p.agentCwd && (inside(root, p.agentCwd) || inside(p.agentCwd, root)));
   for (const p of all) {
@@ -142,7 +157,7 @@ export function processBlocker(all: ProcessInfo[], root: string, agentIds: Set<s
       seen.add(parent.pid);
       if (associated(parent)) belongs = true;
     }
-    if (belongs || (p.cwd && inside(root, p.cwd))) return `Process ${p.pid} is still associated with this worktree or an agent`;
+    if (belongs) return `Process ${p.pid} is still associated with this worktree or an agent`;
   }
   return null;
 }

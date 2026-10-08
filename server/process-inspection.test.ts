@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { processes, processBlocker, type ProcessInfo } from "./processes";
+import { processes, processBlocker, serviceUnit, type ProcessInfo } from "./processes";
 
 test("an unreadable process does not discard other positively observed jobs", { skip: process.platform !== "linux" }, async t => {
   const proc = await mkdtemp(join(tmpdir(), "overcommitted-proc-"));
@@ -84,4 +84,22 @@ test("process inspection records stdio pipes and pipes held by agent-tagged proc
   assert.equal(entry.stdin, "pipe:[7]");
   assert.equal(entry.stdout, null);
   assert.deepEqual(entry.pipes?.sort(), ["pipe:[7]", "pipe:[8]"]);
+});
+
+test("only named, non-transient service units are user services", () => {
+  assert.equal(serviceUnit("0::/user.slice/user-1000.slice/user@1000.service/app.slice/chrome-bridge.service\n"), "chrome-bridge.service");
+  for (const cgroup of ["0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-Paseo-4719.scope", "0::/user.slice/user-1000.slice/user@1000.service/app.slice/run-u42.service", "0::/user.slice/user-1000.slice/user@1000.service", "0::/user.slice/user-1000.slice/session-2.scope", ""]) {
+    assert.equal(serviceUnit(cgroup), null, cgroup);
+  }
+});
+
+test("an installed user service running from a repository does not block it; agent-tagged or agent-descended work does", () => {
+  const service: ProcessInfo = { pid: 30, ppid: 1, cwd: "/repo/bridge", agentId: null, executable: "/usr/bin/node", argv: ["node", "server.mjs"], state: "S", tty: 0, service: "chrome-bridge.service" };
+  assert.equal(processBlocker([service], "/repo", new Set(), daemon, 99), null);
+  assert.match(processBlocker([{ ...service, service: null }], "/repo", new Set(), daemon, 99)!, /Process 30/);
+  for (const patch of [{ agentId: "a" }, { agentCwd: "/repo" }, { terminalId: "t" }]) {
+    assert.match(processBlocker([{ ...service, ...patch }], "/repo", new Set(), daemon, 99, new Set(["t"]))!, /Process 30/, JSON.stringify(patch));
+  }
+  const launcher: ProcessInfo = { pid: 31, ppid: 1, cwd: "/tmp", agentId: "a" };
+  assert.match(processBlocker([launcher, { ...service, ppid: 31 }], "/repo", new Set(["a"]), daemon, 99)!, /Process 3[01]/);
 });

@@ -177,6 +177,10 @@ test("configured known folder: unregistered child repositories are checked like 
   const run = (processes: ProcessInfo[]) => sweepWithApi(f.api([f.parentAgent], [f.child]), daemonPid, configured, true, new AbortController().signal, async () => processes);
   const quiet = await run([f.runtime]);
   for (const root of [f.child, f.sibling, f.unknown]) assert.equal(f.reportFor(quiet, root).outcome, "eligible", root);
+  // The configured non-Git folder is reported as scanned, not as a failed worktree.
+  const folder = quiet.filter(r => r.directory === f.parent);
+  assert.deepEqual(folder.map(r => r.outcome), ["scanned"]);
+  assert.match(folder[0].message, /Checking 3 child repositories: known-a, known-b, not-registered/);
   assert.ok(!quiet.some(r => r.directory === f.outside), "only below the configured folder");
   const busy = await run([f.runtime, { pid: jobPid, ppid: 1, agentId: "parent", cwd: "/tmp" }]);
   assert.match(f.reportFor(busy, f.unknown).message, /Process 202 is still associated/);

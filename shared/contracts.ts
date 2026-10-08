@@ -19,7 +19,7 @@ export const preferences = defineSettings({
 });
 export type Preferences = z.output<typeof preferences.schema>;
 export const reportSchema = z.object({
-  at: z.string(), directory: z.string(), outcome: z.enum(["pushed", "clean", "skipped", "error", "eligible"]), message: z.string(), warnings: z.array(z.string()).optional(),
+  at: z.string(), directory: z.string(), outcome: z.enum(["pushed", "clean", "skipped", "error", "eligible", "scanned"]), message: z.string(), warnings: z.array(z.string()).optional(),
 });
 export type Report = z.infer<typeof reportSchema>;
 export const statusRpc = defineRpc({ name: "overcommitted.status", input: z.object({}), output: z.object({
