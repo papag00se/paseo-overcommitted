@@ -51,6 +51,8 @@ paseo plugin install "$PWD"
 
 Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is an opt-in setting.
 
+![Overcommitted settings in Paseo: automatic commits, check interval, protected branch names, interim branch prefix and child repository folders](docs/media/settings.png)
+
 ## Compatibility
 
 Designed for Linux and Paseo 0.9.1. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. Git ignore rules apply; review what your repositories track before enabling automatic staging.
