@@ -4,6 +4,8 @@ import { agentBlocker, connectLocal, familyIds, parentId, rootOf, snapshot, type
 import { inside, processBlocker, processes, type ProcessInspector } from "./processes";
 import { checkpoint } from "./git";
 import { ActivityBlocked } from "./activity";
+import { childRepoFolders, findChildRepositories } from "./discovery";
+import { resolve } from "node:path";
 
 export async function sweep(settings: Preferences, preview: boolean, signal: AbortSignal): Promise<Report[]> {
   const { client, daemonPid } = await connectLocal();
@@ -28,6 +30,23 @@ export async function sweepWithApi(api: PaseoApi, daemonPid: number, settings: P
     const r = await root(cwd);
     if (r) directories.add(r);
     else reports.push({ at: new Date().toISOString(), directory: cwd, outcome: "skipped", message: "Not an accessible Git worktree" });
+  }
+  // Opt-in discovery: only below folders that Paseo itself knows as a project
+  // or workspace. Discovered repositories go through the same checks as others.
+  const known = new Set([...projects.projects.map(p => p.projectRootPath), ...initial.workspaces.map(w => w.workspaceDirectory)].map(p => resolve(p)));
+  for (const folder of childRepoFolders(settings.childRepoFolders)) {
+    if (signal.aborted) break;
+    if (!known.has(folder)) {
+      reports.push({ at: new Date().toISOString(), directory: folder, outcome: "skipped", message: "Not a known Paseo project or workspace folder; child repositories were not checked" });
+      continue;
+    }
+    try {
+      for (const candidate of await findChildRepositories(folder, signal)) {
+        if (await root(candidate) === candidate) directories.add(candidate);
+      }
+    } catch (error) {
+      reports.push({ at: new Date().toISOString(), directory: folder, outcome: "skipped", message: `Cannot scan for child repositories: ${(error as Error).message}` });
+    }
   }
   for (const directory of directories) {
     if (signal.aborted) break;

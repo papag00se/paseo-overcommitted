@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { Text, TextInput, View } from "react-native";
 import { useRpc, useSettings, type PluginSurfaceProps } from "@getpaseo/plugin/client";
-import { SettingsAction, SettingsCard, SettingsInput, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import { SettingsAction, SettingsCard, SettingsInput, SettingsRow, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { checkRpc, preferences, statusRpc, type Preferences } from "../shared/contracts";
 
@@ -49,6 +49,12 @@ export function Settings({ theme, layout }: PluginSurfaceProps) {
           <SettingsInput label="Interim branch prefix" initialValue={values.interimPrefix} disabled={!values.protectBranches || !values.useInterimBranch} onChangeText={interimPrefix => change({ interimPrefix })} hint="overcommitted/<current branch name> → overcommitted/master. A plain prefix also appends the current branch. Diverged or occupied branches get -2, -3, …" />
         </SettingsCard>
       </View>
+      <SettingsCard>
+        <SettingsRow label="Check for child git repositories in these folders:" hint="Full paths, one per line. Each must be a known Paseo project or workspace folder. Repositories up to 4 levels below it (not hidden folders or node_modules) are checked like any other repository.">
+          <TextInput multiline value={values.childRepoFolders} onChangeText={childRepoFolders => change({ childRepoFolders })} placeholder={"/home/me/Work\n/home/me/src"} placeholderTextColor={theme.colors.foregroundMuted} autoCapitalize="none" autoCorrect={false}
+            style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace" }} />
+        </SettingsRow>
+      </SettingsCard>
       <SettingsAction label="Settings" actionLabel={settings.saving ? "Saving…" : "Save settings"} onPress={save} disabled={settings.saving} />
       {validation || settings.saveError ? <Text style={text}>{validation || settings.saveError}</Text> : null}
       {saved ? <Text style={muted}>Saved.</Text> : null}

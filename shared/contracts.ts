@@ -10,6 +10,11 @@ export const preferences = defineSettings({
     protectedBranches: z.string().default("main, master"),
     useInterimBranch: z.boolean().default(true),
     interimPrefix: z.string().trim().min(1).default("overcommitted/<current branch name>"),
+    // Newline-delimited absolute paths of known Paseo project/workspace folders
+    // whose child Git repositories are checked like registered ones.
+    childRepoFolders: z.string().default("").refine(
+      text => text.split(/\r?\n/).map(line => line.trim()).every(line => !line || line.startsWith("/")),
+      "Child repository folders must be full paths, one per line"),
   }),
 });
 export type Preferences = z.output<typeof preferences.schema>;

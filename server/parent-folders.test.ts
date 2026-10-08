@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { git } from "./command";
 import { sweepWithApi } from "./sweep";
+import { childRepoFolders, findChildRepositories } from "./discovery";
 import type { ProcessInfo } from "./processes";
 import { preferences, type Report } from "../shared/contracts";
 
@@ -168,4 +169,38 @@ test("a parent-folder job appearing at the pre-push guard blocks the push", asyn
   assert.equal((await git(before.remote, ["rev-parse", "main"])).trim(), before.head);
   await assert.rejects(access(join(f.child, ".git", "unexpected-push")), { code: "ENOENT" });
   assert.ok(JSON.parse(await readFile(join(f.child, ".git", "overcommitted-pending.json"), "utf8")), "push remains pending");
+});
+
+test("configured known folder: unregistered child repositories are checked like any other", async t => {
+  const f = await fixture(t);
+  const configured = { ...settings, childRepoFolders: `\n  ${f.parent}/  \n` };
+  const run = (processes: ProcessInfo[]) => sweepWithApi(f.api([f.parentAgent], [f.child]), daemonPid, configured, true, new AbortController().signal, async () => processes);
+  const quiet = await run([f.runtime]);
+  for (const root of [f.child, f.sibling, f.unknown]) assert.equal(f.reportFor(quiet, root).outcome, "eligible", root);
+  assert.ok(!quiet.some(r => r.directory === f.outside), "only below the configured folder");
+  const busy = await run([f.runtime, { pid: jobPid, ppid: 1, agentId: "parent", cwd: "/tmp" }]);
+  assert.match(f.reportFor(busy, f.unknown).message, /Process 202 is still associated/);
+  for (const root of [f.child, f.sibling, f.unknown, f.outside]) await f.untouched(root);
+});
+
+test("configured folder that is not a known Paseo project or workspace is not scanned", async t => {
+  const f = await fixture(t);
+  const folder = join(f.outside, "..");
+  const reports = await sweepWithApi(f.api([f.parentAgent], [f.child]), daemonPid, { ...settings, childRepoFolders: folder }, true, new AbortController().signal, async () => [f.runtime]);
+  assert.match(f.reportFor(reports, join(folder)).message, /Not a known Paseo project or workspace/);
+  assert.ok(!reports.some(r => r.directory === f.outside));
+});
+
+test("child discovery skips hidden folders, node_modules and repositories nested in repositories", async t => {
+  const base = await mkdtemp(join(tmpdir(), "overcommitted-discovery-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  for (const repo of ["a", "group/b", "group/deep/er/c", ".hidden/d", "node_modules/e", "a/nested", "too/deep/for/the/limit"]) await mkdir(join(base, repo, ".git"), { recursive: true });
+  await mkdir(join(base, "worktree"), { recursive: true }); await writeFile(join(base, "worktree", ".git"), "gitdir: /elsewhere\n");
+  assert.deepEqual(await findChildRepositories(base), ["a", "group/b", "group/deep/er/c", "worktree"].map(p => join(base, p)));
+});
+
+test("child repository folders must be full paths", () => {
+  assert.equal(preferences.schema.safeParse({ childRepoFolders: "/home/me/Work\n\n/home/me/src" }).success, true);
+  assert.equal(preferences.schema.safeParse({ childRepoFolders: "/home/me/Work\nWork" }).success, false);
+  assert.deepEqual(childRepoFolders(" /a/ \n\n/b\n/a"), ["/a", "/b"]);
 });
