@@ -301,3 +301,61 @@ test("detached HEAD, missing remote and interrupted git operation never commit",
   await assert.rejects(checkpoint(root, [], guard, false, defaults), /remote/);
   assert.equal((await git(root, ["rev-parse", "HEAD"])).trim(), initial);
 });
+
+async function advanceRemote(base: string, remote: string, file: string, content: string) {
+  const other = join(base, `other-${file.replace(/\W/g, "")}`);
+  await git(base, ["clone", "-q", remote, other]);
+  await git(other, ["config", "user.email", "test@example.invalid"]); await git(other, ["config", "user.name", "Other"]);
+  await writeFile(join(other, file), content); await git(other, ["add", "."]); await git(other, ["commit", "-m", `remote ${file}`]);
+  await git(other, ["push", "-q", "origin", "master"]);
+  return (await git(other, ["rev-parse", "HEAD"])).trim();
+}
+
+test("remote that moved ahead without conflicts is merged locally, then pushed", async t => {
+  const { root, remote, base } = await fixture(t);
+  const theirs = await advanceRemote(base, remote, "remote.txt", "remote work\n");
+  await writeFile(join(root, "local.txt"), "local work\n");
+  const result = await checkpoint(root, [], guard, false, defaults);
+  assert.equal(result.outcome, "pushed");
+  assert.equal(await git(remote, ["show", "master:remote.txt"]), "remote work\n");
+  assert.equal(await git(remote, ["show", "master:local.txt"]), "local work\n");
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), (await git(root, ["rev-parse", "HEAD"])).trim());
+  assert.equal((await git(root, ["merge-base", "--is-ancestor", theirs, "HEAD"])), "");
+  assert.equal(await git(root, ["status", "--porcelain"]), "");
+  await assert.rejects(readFile(join(root, ".git", "overcommitted-pending.json")));
+});
+
+test("conflicting remote changes are an error and change nothing", async t => {
+  const { root, remote, base } = await fixture(t);
+  const theirs = await advanceRemote(base, remote, "base.txt", "remote edit\n");
+  await writeFile(join(root, "base.txt"), "local edit\n");
+  await assert.rejects(checkpoint(root, [], guard, false, defaults), /conflict with local work.*left as they are/);
+  const local = (await git(root, ["rev-parse", "HEAD"])).trim();
+  assert.equal(await git(root, ["show", `${local}:base.txt`]), "local edit\n");
+  assert.equal(await git(root, ["rev-list", "--count", "HEAD"]), "2\n");
+  assert.equal(await git(root, ["status", "--porcelain"]), "");
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), theirs);
+  assert.equal(JSON.parse(await readFile(join(root, ".git", "overcommitted-pending.json"), "utf8")).branch, "master");
+});
+
+test("a merge that would replace an ignored local file is refused", async t => {
+  const { root, remote, base } = await fixture(t);
+  await writeFile(join(root, ".git", "info", "exclude"), ".env\n"); await writeFile(join(root, ".env"), "SECRET=local\n");
+  const theirs = await advanceRemote(base, remote, ".env", "SECRET=remote\n");
+  await writeFile(join(root, "local.txt"), "local work\n");
+  await assert.rejects(checkpoint(root, [], guard, false, defaults), /would replace ignored local files \(\.env\).*left as they are/);
+  assert.equal(await readFile(join(root, ".env"), "utf8"), "SECRET=local\n");
+  assert.equal(await git(root, ["status", "--porcelain"]), "");
+  await assert.rejects(readFile(join(root, ".git", "MERGE_HEAD")));
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), theirs);
+});
+
+test("unpushed commits already contained in the remote resolve as clean without touching the checkout", async t => {
+  const { root, remote, base } = await fixture(t);
+  await advanceRemote(base, remote, "remote.txt", "remote work\n");
+  await git(root, ["fetch", "-q", "origin"]); await git(root, ["update-ref", "refs/remotes/origin/master", "HEAD"]);
+  const head = (await git(root, ["rev-parse", "HEAD"])).trim();
+  await writeFile(join(root, ".git", "overcommitted-pending.json"), JSON.stringify({ branch: "master", remote: "origin", ref: "refs/heads/master" }));
+  assert.equal((await checkpoint(root, [], guard, false, defaults)).outcome, "clean");
+  assert.equal((await git(root, ["rev-parse", "HEAD"])).trim(), head);
+});

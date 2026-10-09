@@ -58,7 +58,7 @@ Open **Settings → Plugins → Overcommitted → Settings**. Start with **Previ
 
 ## Compatibility
 
-Designed for Linux and Paseo 0.9.1. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. Git ignore rules apply; review what your repositories track before enabling automatic staging.
+Designed for Linux and Paseo 0.9.1. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. If the remote branch has moved ahead, it merges those commits in only when Git proves the merge has no conflicts and replaces no ignored local files; otherwise it reports the problem and leaves everything as it was. Git ignore rules apply; review what your repositories track before enabling automatic staging.
 
 Activity checks are observations, not an atomic idle lease. Unknown activity information produces a warning and does not prevent a commit or push. The [reference](docs/REFERENCE.md) explains the ownership, retry, branch, and race-window contracts in detail.
 

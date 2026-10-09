@@ -1,4 +1,4 @@
-import { access, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { git } from "./command";
 import { protectedNames, selectInterim } from "./branches";
@@ -24,6 +24,47 @@ export function commitMessage(names: string[], summary: string, titles: string[]
   const clean = (s: string) => s.replace(/[\r\n\x00-\x1f]/g, " ").trim();
   const subject = titles.length ? clean(titles.join("; ")).slice(0, 90) : `save unattended changes in ${names.length} files`;
   return `chore(overcommitted): ${subject}\n\nAutomatic checkpoint after idle checks.\n\n${summary.trim()}\n\nChanged paths:\n${names.slice(0, 100).map(n => `- ${JSON.stringify(n)}`).join("\n")}${names.length > 100 ? `\n... and ${names.length - 100} more` : ""}\n`;
+}
+const isAncestor = (root: string, a: string, b: string) => git(root, ["merge-base", "--is-ancestor", a, b]).then(() => true, () => false);
+const head = async (root: string) => (await git(root, ["rev-parse", "HEAD"])).trim();
+// True when something on disk occupies `path` or a parent folder of it is a file.
+async function blocksPath(root: string, path: string) {
+  const parts = path.split("/");
+  for (let i = 1; i <= parts.length; i++) {
+    const stat = await lstat(join(root, ...parts.slice(0, i))).catch(e => { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; });
+    if (!stat) return false;
+    if (i === parts.length || !stat.isDirectory()) return true;
+  }
+  return false;
+}
+// After a rejected push: fetch the destination and, only when Git proves the
+// merge is conflict-free and touches no ignored files, merge it locally.
+// Returns the commit to push, "contained" when the remote already has our work,
+// or null when the remote did not move (the rejection had another cause).
+async function integrateRemote(root: string, target: Pending, commit: string, check: () => Promise<void>, signal?: AbortSignal): Promise<string | "contained" | null> {
+  // An unreachable remote leaves the original push error as the explanation.
+  if (!await git(root, ["fetch", "--no-tags", "--", target.remote, target.ref], signal).then(() => true, () => false)) return null;
+  const theirs = (await git(root, ["rev-parse", "--verify", "FETCH_HEAD^{commit}"])).trim();
+  if (await isAncestor(root, theirs, commit)) return null;
+  if (await isAncestor(root, commit, theirs)) return "contained";
+  const where = `${target.remote}/${target.ref.slice("refs/heads/".length)}`;
+  // Dry run: computes the merge in the object store without touching files.
+  const tree = (await git(root, ["merge-tree", "--write-tree", commit, theirs]).catch(() => {
+    throw new Error(`Work not pushed: ${where} has new commits that conflict with local work on ${target.branch}. Local commits were left as they are; merge manually.`);
+  })).trim();
+  // Everything is committed, so only untracked (ignored) files could be lost:
+  // Git silently replaces them when the merge adds the same path.
+  const added = (await git(root, ["diff-tree", "-r", "--name-only", "--diff-filter=A", "-z", commit, tree])).split("\0").filter(Boolean);
+  const clobbered = [];
+  for (const path of added) if (await blocksPath(root, path)) clobbered.push(path);
+  if (clobbered.length) throw new Error(`Work not pushed: merging ${where} would replace ignored local files (${clobbered.slice(0, 5).join(", ")}). Local commits were left as they are; merge manually.`);
+  await check();
+  if (await head(root) !== commit) throw new Error("HEAD moved before merge");
+  await git(root, ["merge", "--no-edit", "--no-stat", "-m", `chore(overcommitted): merge ${where} before push`, theirs], signal).catch(async error => {
+    if (await exists(join((await git(root, ["rev-parse", "--absolute-git-dir"])).trim(), "MERGE_HEAD"))) await git(root, ["merge", "--abort"]);
+    throw new Error(`Work not pushed: merging ${where} failed and was undone: ${(error as Error).message}`);
+  });
+  return head(root);
 }
 export interface GitResult { outcome: "pushed" | "clean" | "eligible"; message: string }
 export async function checkpoint(root: string, titles: string[], guard: () => Promise<void>, preview: boolean, settings: Preferences, signal?: AbortSignal): Promise<GitResult> {
@@ -87,13 +128,23 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       if ((await git(root, ["write-tree"])).trim() !== stagedTree || (await git(root, ["rev-parse", "--verify", "HEAD"]).catch(() => "")).trim() !== initialHead) throw new Error("Index or HEAD changed before commit");
       await git(root, ["commit", "-m", commitMessage(names, summary, titles)], signal);
     }
-    const commit = (await git(root, ["rev-parse", "HEAD"])).trim();
+    let commit = await head(root);
     await check();
-    if ((await git(root, ["rev-parse", "HEAD"])).trim() !== commit) throw new Error("HEAD moved before push");
+    if (await head(root) !== commit) throw new Error("HEAD moved before push");
     // Explicit refspec: ignores push.default, push refspecs, and matching-branch config.
     // No force, pull, rebase, reset, stash, or hook bypass.
     if (protectedSet.has(branch) || protectedSet.has(target.ref.replace(/^refs\/heads\//, ""))) throw new Error("Refusing to push a protected branch");
-    await git(root, ["-c", "push.followTags=false", "-c", `remote.${target.remote}.mirror=false`, "push", "--porcelain", "--", target.remote, `${commit}:${target.ref}`], signal);
+    const push = () => git(root, ["-c", "push.followTags=false", "-c", `remote.${target.remote}.mirror=false`, "push", "--porcelain", "--", target.remote, `${commit}:${target.ref}`], signal);
+    try { await push(); } catch (rejected) {
+      const integrated = await integrateRemote(root, target, commit, check, signal);
+      if (!integrated) throw rejected;
+      if (integrated === "contained") {
+        await unlink(pendingPath);
+        return { outcome: "clean", message: `${target.remote}/${target.ref} already contains ${branch}` };
+      }
+      commit = integrated;
+      await push();
+    }
     await unlink(pendingPath);
     return { outcome: "pushed", message: `Pushed ${branch} to ${target.remote}/${target.ref}` };
   } finally { await lock.close(); await unlink(lockPath); }
