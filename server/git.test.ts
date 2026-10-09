@@ -296,7 +296,7 @@ test("detached HEAD, missing remote and interrupted git operation never commit",
   await assert.rejects(checkpoint(root, [], guard, false, defaults), /operation in progress/);
   await rm(join(root, ".git", "MERGE_HEAD"));
   await git(root, ["switch", "--detach", initial]);
-  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, saveDetachedHead: false }), /Detached HEAD/);
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, useInterimBranch: false }), /Detached HEAD/);
   await git(root, ["switch", "master"]); await git(root, ["remote", "remove", "origin"]);
   await assert.rejects(checkpoint(root, [], guard, false, defaults), /remote/);
   assert.equal((await git(root, ["rev-parse", "HEAD"])).trim(), initial);
@@ -407,7 +407,6 @@ test("a waiting push whose branch became protected goes to the interim branch", 
   await writeFile(join(root, "new.txt"), "work\n");
   await assert.rejects(checkpoint(root, [], guard, false, defaults));
   await allow();
-  await assert.rejects(checkpoint(root, [], guard, false, { ...protectedSettings, rerouteNewlyProtected: false }), /protected/);
   assert.equal((await checkpoint(root, [], guard, false, protectedSettings)).outcome, "pushed");
   assert.equal(await git(remote, ["show", "overcommitted/master:new.txt"]), "work\n");
   assert.equal((await git(remote, ["rev-parse", "master"])).trim(), initial);
@@ -417,7 +416,7 @@ test("a branch the remote refuses as protected is pushed to the interim branch i
   const { root, remote, initial } = await fixture(t);
   await rejectPushes(remote, `while read old new ref; do [ "$ref" = refs/heads/master ] && { echo "GH006: Protected branch update failed for refs/heads/master." >&2; exit 1; }; done; exit 0`);
   await writeFile(join(root, "new.txt"), "work\n");
-  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, rerouteServerProtected: false }), /GH006/);
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, useInterimBranch: false }), /GH006/);
   const result = await checkpoint(root, [], guard, false, defaults);
   assert.equal(result.outcome, "pushed"); assert.match(result.message, /protected on the remote.*overcommitted\/master/);
   assert.equal((await git(root, ["branch", "--show-current"])).trim(), "overcommitted/master");

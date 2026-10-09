@@ -138,7 +138,7 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
     };
     let target: Pending;
     if (!branch) {
-      if (!settings.saveDetachedHead || !settings.useInterimBranch || !initialHead) throw new Error("Detached HEAD: there is no branch to push. Check out a branch, or enable interim branches and “Save work from a detached HEAD”.");
+      if (!settings.useInterimBranch || !initialHead) throw new Error("Detached HEAD: there is no branch to push. Check out a branch, or enable “Create and push to an interim branch”.");
       if (!dirty && (await git(root, ["for-each-ref", "--count=1", "--contains", "HEAD", "refs/remotes"])).trim()) return { outcome: "clean", message: `${resumed}Detached HEAD has no changes and is already on a remote branch` };
       target = await route(`detached-${initialHead.slice(0, 7)}`, (await pushTarget(root, "")).remote);
     } else {
@@ -149,7 +149,6 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       if (!dirty && !pending && initialHead && trackingHead === initialHead) return { outcome: resumed ? "pushed" : "clean", message: `${resumed}No changes or unpushed commits on ${branch}` };
       if (isProtected(settings, target)) {
         if (!settings.useInterimBranch) throw new Error(`Work not pushed: ${branch} / ${target.ref} is protected and interim branches are disabled. Enable “Create and push to an interim branch” in Overcommitted settings, or push this work manually.`);
-        if (pending && !settings.rerouteNewlyProtected) throw new Error("A pending push now targets a protected branch; push it manually, or enable “Send a waiting push to the interim branch”");
         target = await route(branch, target.remote);
       }
     }
@@ -184,7 +183,7 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
     if (isProtected(settings, target)) throw new Error("Refusing to push a protected branch");
     try { await pushCommit(root, target, commit, signal); } catch (rejected) {
       const message = (rejected as Error).message;
-      if (settings.rerouteServerProtected && settings.useInterimBranch && refusedAsProtected(message)) {
+      if (settings.useInterimBranch && refusedAsProtected(message)) {
         const refused = where(target);
         target = await route(branch, target.remote);
         branch = target.branch;
