@@ -296,7 +296,7 @@ test("detached HEAD, missing remote and interrupted git operation never commit",
   await assert.rejects(checkpoint(root, [], guard, false, defaults), /operation in progress/);
   await rm(join(root, ".git", "MERGE_HEAD"));
   await git(root, ["switch", "--detach", initial]);
-  await assert.rejects(checkpoint(root, [], guard, false, defaults));
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, saveDetachedHead: false }), /Detached HEAD/);
   await git(root, ["switch", "master"]); await git(root, ["remote", "remove", "origin"]);
   await assert.rejects(checkpoint(root, [], guard, false, defaults), /remote/);
   assert.equal((await git(root, ["rev-parse", "HEAD"])).trim(), initial);
@@ -358,4 +358,137 @@ test("unpushed commits already contained in the remote resolve as clean without 
   await writeFile(join(root, ".git", "overcommitted-pending.json"), JSON.stringify({ branch: "master", remote: "origin", ref: "refs/heads/master" }));
   assert.equal((await checkpoint(root, [], guard, false, defaults)).outcome, "clean");
   assert.equal((await git(root, ["rev-parse", "HEAD"])).trim(), head);
+});
+
+async function rejectPushes(remote: string, script: string) {
+  const hook = join(remote, "hooks", "pre-receive");
+  await writeFile(hook, `#!/bin/sh\n${script}\n`); await chmod(hook, 0o755);
+  return () => rm(hook);
+}
+const exitedPid = async () => {
+  const { spawn } = await import("node:child_process");
+  const child = spawn("true"); await new Promise(resolve => child.on("exit", resolve));
+  return child.pid!;
+};
+
+test("a lock left by a dead process is removed; a live owner's lock and the disabled setting are respected", async t => {
+  const { root, remote } = await fixture(t);
+  const lock = join(root, ".git", "overcommitted.lock");
+  await writeFile(join(root, "new.txt"), "new\n");
+  await writeFile(lock, JSON.stringify({ pid: process.ppid, at: new Date().toISOString(), root }));
+  await assert.rejects(checkpoint(root, [], guard, false, defaults), /already locked/);
+  await writeFile(lock, JSON.stringify({ pid: await exitedPid(), at: new Date().toISOString(), root }));
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, removeStaleLock: false }), /already locked/);
+  assert.equal((await checkpoint(root, [], guard, false, defaults)).outcome, "pushed");
+  assert.equal(await git(remote, ["show", "master:new.txt"]), "new\n");
+  await assert.rejects(readFile(lock));
+});
+
+test("a push left waiting before a branch switch is finished without switching back", async t => {
+  const { root, remote } = await fixture(t);
+  const allow = await rejectPushes(remote, "exit 1");
+  await writeFile(join(root, "new.txt"), "master work\n");
+  await assert.rejects(checkpoint(root, [], guard, false, defaults));
+  const waiting = (await git(root, ["rev-parse", "master"])).trim();
+  await git(root, ["switch", "-c", "feature"]);
+  await allow();
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, pushSwitchedBranch: false }), /different branch/);
+  await writeFile(join(root, "feature.txt"), "feature work\n");
+  const result = await checkpoint(root, [], guard, false, defaults);
+  assert.equal(result.outcome, "pushed"); assert.match(result.message, /waiting push of master/);
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), waiting);
+  assert.equal(await git(remote, ["show", "feature:feature.txt"]), "feature work\n");
+  assert.equal((await git(root, ["branch", "--show-current"])).trim(), "feature");
+});
+
+test("a waiting push whose branch became protected goes to the interim branch", async t => {
+  const { root, remote, initial } = await fixture(t);
+  const allow = await rejectPushes(remote, "exit 1");
+  await writeFile(join(root, "new.txt"), "work\n");
+  await assert.rejects(checkpoint(root, [], guard, false, defaults));
+  await allow();
+  await assert.rejects(checkpoint(root, [], guard, false, { ...protectedSettings, rerouteNewlyProtected: false }), /protected/);
+  assert.equal((await checkpoint(root, [], guard, false, protectedSettings)).outcome, "pushed");
+  assert.equal(await git(remote, ["show", "overcommitted/master:new.txt"]), "work\n");
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), initial);
+});
+
+test("a branch the remote refuses as protected is pushed to the interim branch instead", async t => {
+  const { root, remote, initial } = await fixture(t);
+  await rejectPushes(remote, `while read old new ref; do [ "$ref" = refs/heads/master ] && { echo "GH006: Protected branch update failed for refs/heads/master." >&2; exit 1; }; done; exit 0`);
+  await writeFile(join(root, "new.txt"), "work\n");
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, rerouteServerProtected: false }), /GH006/);
+  const result = await checkpoint(root, [], guard, false, defaults);
+  assert.equal(result.outcome, "pushed"); assert.match(result.message, /protected on the remote.*overcommitted\/master/);
+  assert.equal((await git(root, ["branch", "--show-current"])).trim(), "overcommitted/master");
+  assert.equal(await git(remote, ["show", "overcommitted/master:new.txt"]), "work\n");
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), initial);
+});
+
+test("secret scanning refusals are never routed around", async t => {
+  const { root, remote } = await fixture(t);
+  await rejectPushes(remote, `echo "GH013: Repository rule violations found. Push cannot contain secrets. Changes must be made through a pull request." >&2; exit 1`);
+  await writeFile(join(root, "new.txt"), "work\n");
+  await assert.rejects(checkpoint(root, [], guard, false, defaults), /secrets/);
+  assert.equal((await git(root, ["branch", "--show-current"])).trim(), "master");
+});
+
+test("work on a detached HEAD is saved to a new interim branch; a clean detached checkout is left alone", async t => {
+  const { root, remote, initial } = await fixture(t);
+  await git(root, ["switch", "--detach", initial]);
+  assert.equal((await checkpoint(root, [], guard, false, defaults)).outcome, "clean");
+  assert.equal((await git(root, ["branch", "--show-current"])).trim(), "");
+  await writeFile(join(root, "new.txt"), "detached work\n");
+  assert.equal((await checkpoint(root, [], guard, false, defaults)).outcome, "pushed");
+  const name = `overcommitted/detached-${initial.slice(0, 7)}`;
+  assert.equal((await git(root, ["branch", "--show-current"])).trim(), name);
+  assert.equal(await git(remote, ["show", `${name}:new.txt`]), "detached work\n");
+  assert.equal((await git(remote, ["rev-parse", "master"])).trim(), initial);
+});
+
+test("with remote merging disabled, a moved-ahead remote is reported", async t => {
+  const { root, remote, base } = await fixture(t);
+  await advanceRemote(base, remote, "remote.txt", "remote work\n");
+  await writeFile(join(root, "local.txt"), "local\n");
+  await assert.rejects(checkpoint(root, [], guard, false, { ...defaults, mergeRemoteAhead: false }), /rejected|failed to push/);
+});
+
+function agentApi(root: string, created: { prompt?: string; cwd: string; config: { provider: string } }[]) {
+  return {
+    agents: { list: async () => ({ entries: [], pageInfo: { hasMore: false } }), create: async (options: typeof created[number]) => { created.push(options); return { id: `agent-${created.length}` }; } },
+    workspaces: { list: async () => ({ entries: [], pageInfo: { hasMore: false } }) },
+    projects: { list: async () => ({ projects: [{ projectRootPath: root }] }) },
+    terminals: { list: async () => ({ entries: [] }) },
+  } as unknown as PaseoApi;
+}
+const withAgent = { ...defaults, agentResolve: true };
+
+test("conflicts go to one agent per situation when enabled; otherwise they stay errors", async t => {
+  const { root, remote, base } = await fixture(t);
+  const theirs = await advanceRemote(base, remote, "base.txt", "remote edit\n");
+  await writeFile(join(root, "base.txt"), "local edit\n");
+  const created: Parameters<typeof agentApi>[1] = [];
+  const run = (settings: typeof defaults) => sweepWithApi(agentApi(root, created), 2, settings, false, new AbortController().signal, async () => []);
+  assert.equal((await run(defaults))[0].outcome, "error");
+  assert.equal(created.length, 0);
+  const handed = await run(withAgent);
+  assert.equal(handed[0].outcome, "skipped"); assert.match(handed[0].message, /resolve merge conflict.*agent-1/);
+  assert.equal(created[0].cwd, root); assert.equal(created[0].config.provider, defaults.agentModel);
+  assert.match(created[0].prompt!, new RegExp(`git merge --no-ff ${theirs}`));
+  assert.match(created[0].prompt!, /--no-verify/);
+  const again = await run(withAgent);
+  assert.equal(again[0].outcome, "error"); assert.match(again[0].message, /agent-1 already tried/);
+  assert.equal(created.length, 1);
+});
+
+test("a failed commit check goes to an agent with the check's output", async t => {
+  const { root } = await fixture(t);
+  const hook = join(root, ".git", "hooks", "pre-commit");
+  await writeFile(hook, "#!/bin/sh\necho 'lint: missing semicolon in app.js' >&2\nexit 1\n"); await chmod(hook, 0o755);
+  await writeFile(join(root, "app.js"), "let x = 1\n");
+  const created: Parameters<typeof agentApi>[1] = [];
+  const reports = await sweepWithApi(agentApi(root, created), 2, withAgent, false, new AbortController().signal, async () => []);
+  assert.equal(reports[0].outcome, "skipped"); assert.match(reports[0].message, /fix failed commit check/);
+  assert.match(created[0].prompt!, /missing semicolon/);
+  assert.match(await git(root, ["diff", "--cached", "--name-only"]), /app\.js/);
 });

@@ -4,6 +4,7 @@ import { agentBlocker, connectLocal, familyIds, parentId, rootOf, snapshot, type
 import { inside, processBlocker, processes, type ProcessInspector } from "./processes";
 import { checkpoint } from "./git";
 import { ActivityBlocked } from "./activity";
+import { requestAgent, Resolvable } from "./agent";
 import { childRepoFolders, findChildRepositories } from "./discovery";
 import { relative, resolve } from "node:path";
 
@@ -99,8 +100,10 @@ export async function sweepWithApi(api: PaseoApi, daemonPid: number, settings: P
       const guard = async () => { await validate(await fresh()); };
       const result = await checkpoint(directory, titles, guard, preview, settings, signal);
       reports.push({ at: new Date().toISOString(), directory, ...result, warnings: [...warnings].slice(0, 30) });
-    } catch (e) {
-      reports.push({ at: new Date().toISOString(), directory, outcome: e instanceof ActivityBlocked ? "skipped" : "error", message: (e as Error).message.slice(0, 3000), warnings: [...warnings].slice(0, 30) });
+    } catch (failure) {
+      let e = failure as Error, handed = "";
+      if (e instanceof Resolvable && settings.agentResolve && !preview) handed = await requestAgent(api, directory, e, settings).catch(error => { e = error as Error; return ""; });
+      reports.push({ at: new Date().toISOString(), directory, outcome: handed || e instanceof ActivityBlocked ? "skipped" : "error", message: (handed || e.message).slice(0, 3000), warnings: [...warnings].slice(0, 30) });
     }
   }
   if (!directories.size && initialWarnings.size) reports.push({ at: new Date().toISOString(), directory: "daemon", outcome: "error", message: "No Git repositories could be identified from the available Paseo directory data", warnings: [...initialWarnings].slice(0, 30) });

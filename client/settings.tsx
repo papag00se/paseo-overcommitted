@@ -49,18 +49,31 @@ export function Settings({ theme, layout }: PluginSurfaceProps) {
         <SettingsSwitch label="Don't push to these branch names automatically:" value={values.protectBranches} onValueChange={protectBranches => change({ protectBranches })} />
         <SettingsInput label="Branch names (comma separated)" initialValue={values.protectedBranches} disabled={!values.protectBranches} onChangeText={protectedBranches => change({ protectedBranches })} hint="Exact, case-sensitive branch names, for example: main, master, production" />
       </SettingsCard>
-      <View style={{ marginLeft: layout.compact ? 16 : 28, opacity: values.protectBranches ? 1 : 0.5 }}>
-        <SettingsCard>
-          <SettingsSwitch label="Create and push to an interim branch with prefix:" value={values.useInterimBranch} disabled={!values.protectBranches} onValueChange={useInterimBranch => change({ useInterimBranch })} />
-          <SettingsInput label="Interim branch prefix" initialValue={values.interimPrefix} disabled={!values.protectBranches || !values.useInterimBranch} onChangeText={interimPrefix => change({ interimPrefix })} hint="<current branch name> is a placeholder for the protected branch being preserved: overcommitted/<current branch name> on main pushes to overcommitted/main. A prefix without the placeholder gets the branch name appended. If that branch has diverged or is in use, -2, -3, … is added." />
-        </SettingsCard>
-      </View>
+      <SettingsCard>
+        <SettingsSwitch label="Create and push to an interim branch with prefix:" value={values.useInterimBranch} onValueChange={useInterimBranch => change({ useInterimBranch })} hint="Used for protected branch names above, branches the remote refuses as protected, and work on a detached HEAD." />
+        <SettingsInput label="Interim branch prefix" initialValue={values.interimPrefix} disabled={!values.useInterimBranch} onChangeText={interimPrefix => change({ interimPrefix })} hint="<current branch name> is a placeholder for the branch being preserved: overcommitted/<current branch name> on main pushes to overcommitted/main. A prefix without the placeholder gets the branch name appended. If that branch has diverged or is in use, -2, -3, … is added." />
+      </SettingsCard>
       <SettingsCard>
         <SettingsRow label="Check for child git repositories in these folders:" hint="Full paths, one per line. Each must be a known Paseo project or workspace folder. Repositories up to 4 levels below it (not hidden folders or node_modules) are checked like any other repository.">
           <TextInput multiline value={values.childRepoFolders} onChangeText={childRepoFolders => change({ childRepoFolders })} placeholder={"/home/me/Work\n/home/me/src"} placeholderTextColor={theme.colors.foregroundMuted} autoCapitalize="none" autoCorrect={false}
             style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace" }} />
         </SettingsRow>
       </SettingsCard>
+      <SettingsSection title="Automatic fixes">
+        <Text style={muted}>Each fix runs only when it cannot lose work. Otherwise the problem is reported under Work not pushed.</Text>
+        <SettingsCard>
+          <SettingsSwitch label="Merge new remote commits when they don't conflict" value={values.mergeRemoteAhead} onValueChange={mergeRemoteAhead => change({ mergeRemoteAhead })} hint="If the remote branch moved ahead, merge it in only when Git proves there are no conflicts and no ignored local files would be replaced." />
+          <SettingsSwitch label="Remove a lock left by a crashed check" value={values.removeStaleLock} onValueChange={removeStaleLock => change({ removeStaleLock })} hint="Only when the process that took the lock is gone." />
+          <SettingsSwitch label="Finish a waiting push after a branch switch" value={values.pushSwitchedBranch} onValueChange={pushSwitchedBranch => change({ pushSwitchedBranch })} hint="Pushes the branch whose push failed earlier, without switching back to it." />
+          <SettingsSwitch label="Send a waiting push to the interim branch when its branch becomes protected" value={values.rerouteNewlyProtected} disabled={!values.useInterimBranch} onValueChange={rerouteNewlyProtected => change({ rerouteNewlyProtected })} />
+          <SettingsSwitch label="Use the interim branch when the remote refuses a protected branch" value={values.rerouteServerProtected} disabled={!values.useInterimBranch} onValueChange={rerouteServerProtected => change({ rerouteServerProtected })} hint="For example GitHub branch protection or rulesets. Secret-scanning refusals are never routed around." />
+          <SettingsSwitch label="Save work from a detached HEAD to a new interim branch" value={values.saveDetachedHead} disabled={!values.useInterimBranch} onValueChange={saveDetachedHead => change({ saveDetachedHead })} hint="A clean detached checkout that is already on the remote is left alone." />
+        </SettingsCard>
+        <SettingsCard>
+          <SettingsSwitch label="Use an agent to resolve conflicts or pre-checks" value={values.agentResolve} onValueChange={agentResolve => change({ agentResolve })} hint={"Conflict: you and the remote both edited the install steps in README.md. The agent merges, keeps both edits and commits.\nPre-check: a lint hook blocks the commit over a missing semicolon in app.js. The agent fixes app.js and commits normally.\nIt works in the repository, never pushes, forces or skips checks, and gets one try per situation."} />
+          <SettingsInput label="Agent provider/model" initialValue={values.agentModel} disabled={!values.agentResolve} onChangeText={agentModel => change({ agentModel })} hint="For example claude/claude-sonnet-5 or codex/gpt-6.1-sol." />
+        </SettingsCard>
+      </SettingsSection>
       <Text style={muted}>Interim branches stay checked out. Disabling the interim option leaves protected branches untouched and raises a persistent warning when work cannot be pushed. No force pushes, stashing, resets or hook bypasses. Unknown or unreadable activity does not block commits or pushes. Only positively observed activity blocks; incomplete checks are shown as warnings.</Text>
     </SettingsSection>
     <SettingsSection title="Checks">

@@ -24,6 +24,8 @@
 | 👀 Activity-aware | Busy agents, scripts, terminals and processes put a repo off until later |
 | 🔀 Branch routing | Protect branches like `main` and push their work to `overcommitted/main` instead |
 | 🗂️ Nested repos | Optionally sweeps Git repos inside a project folder |
+| 🔧 Automatic fixes | Merges a remote that moved ahead, clears crashed locks, finishes waiting pushes, saves detached work, and routes around remote branch protection. Only when nothing can be lost |
+| 🤖 Optional agent help | Hands merge conflicts and failed commit checks to a Paseo agent, which never pushes or skips checks |
 | ⚠️ Persistent warnings | Unpushed work stays visible across reloads until it's resolved |
 | 🔍 Preview mode | See what would happen without staging, committing or pushing |
 | ✍️ Local commit messages | Built from task titles, changed paths and diff stats. No model calls |
@@ -54,7 +56,9 @@ paseo plugin install "$PWD"
 
 Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is opt-in. In the interim prefix, `<current branch name>` is a placeholder for the protected branch's name: `overcommitted/<current branch name>` turns `main` into `overcommitted/main`. **Save settings** is at the top of the page. Leave settings with **← Back** or <kbd>Esc</kbd>.
 
-![Overcommitted settings in Paseo: automatic commits, check interval, protected branch names, interim branch prefix and child repository folders](docs/media/settings.png)
+Each automatic fix has its own switch under **Automatic fixes**. Agent help is off until you turn on **Use an agent to resolve conflicts or pre-checks** and pick a `provider/model`.
+
+![Overcommitted settings in Paseo: automatic commits, check interval, protected branch names, interim branch prefix, child repository folders, automatic fixes and agent help](docs/media/settings.png)
 
 ## Compatibility
 

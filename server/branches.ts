@@ -13,6 +13,9 @@ export async function selectInterim(root: string, source: string, remote: string
   const base = interimName(settings.interimPrefix, source);
   await git(root, ["check-ref-format", "--branch", base]);
   const head = (await git(root, ["rev-parse", "--verify", "HEAD"])).trim();
+  // `source` names the work (a branch, or a label for a detached HEAD).
+  const current = () => git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).then(s => s.trim(), () => "");
+  const checkedOut = await current();
   const local = new Map((await git(root, ["for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads/"]))
     .trim().split("\n").filter(Boolean).map(line => line.split(" ") as [string, string]));
   const remoteRefs = new Map((await git(root, ["ls-remote", "--heads", "--", remote])).trim().split("\n").filter(Boolean)
@@ -37,7 +40,7 @@ export async function selectInterim(root: string, source: string, remote: string
     if (!compatible) continue;
     if (preview) return name;
     await guard();
-    if ((await git(root, ["symbolic-ref", "--short", "HEAD"])).trim() !== source || (await git(root, ["rev-parse", "HEAD"])).trim() !== head) throw new Error("Source branch moved while selecting interim branch");
+    if (await current() !== checkedOut || (await git(root, ["rev-parse", "HEAD"])).trim() !== head) throw new Error("Source branch moved while selecting interim branch");
     if (local.has(name)) {
       // Compare-and-swap a proven fast-forward of a branch not checked out anywhere.
       // Its new tree equals our current HEAD, so ordinary switch preserves dirty files.

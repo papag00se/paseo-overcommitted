@@ -15,7 +15,17 @@ export const preferences = defineSettings({
     childRepoFolders: z.string().default("").refine(
       text => text.split(/\r?\n/).map(line => line.trim()).every(line => !line || line.startsWith("/")),
       "Child repository folders must be full paths, one per line"),
-  }),
+    // Automatic fixes. Each is non-destructive; when one cannot be proven
+    // safe, the failure is reported instead.
+    mergeRemoteAhead: z.boolean().default(true),
+    removeStaleLock: z.boolean().default(true),
+    pushSwitchedBranch: z.boolean().default(true),
+    rerouteNewlyProtected: z.boolean().default(true),
+    rerouteServerProtected: z.boolean().default(true),
+    saveDetachedHead: z.boolean().default(true),
+    agentResolve: z.boolean().default(false),
+    agentModel: z.string().trim().default("claude/claude-sonnet-5"),
+  }).refine(s => !s.agentResolve || /^[^/\s]+\/\S+$/.test(s.agentModel), { message: "Agent model must be provider/model, for example claude/claude-sonnet-5", path: ["agentModel"] }),
 });
 export type Preferences = z.output<typeof preferences.schema>;
 export const reportSchema = z.object({
