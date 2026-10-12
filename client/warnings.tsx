@@ -1,10 +1,10 @@
-import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { dismissWarningsRpc, statusRpc } from "../shared/contracts";
 
-export function Warnings({ theme, layout, onDismissed }: PluginSurfaceProps & { onDismissed: () => void }) {
+export function Warnings({ theme, layout, onDismissed }: PluginScreenProps & { onDismissed: () => void }) {
   const getStatus = useRpc(statusRpc), dismiss = useRpc(dismissWarningsRpc);
   const queries = useQueryClient();
   const status = useQuery({ queryKey: ["overcommitted-status"], queryFn: () => getStatus({}), refetchInterval: 15_000 });

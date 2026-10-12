@@ -4,7 +4,7 @@
 
 # Paseo Overcommitted
 
-![Paseo compatibility](https://img.shields.io/badge/Paseo-0.9.1-22c55e?style=flat-square)
+![Paseo compatibility](https://img.shields.io/badge/Paseo-0.11.2-22c55e?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-64748b?style=flat-square)
 
@@ -44,7 +44,7 @@ flowchart LR
 
 ## Getting started
 
-Requires Linux, Paseo 0.9.1, Git, npm, and plugins enabled. Your daemon must have normal Git author information and remote authentication.
+Requires Linux, Paseo 0.11.2 (daemon and app, supported through 0.11.x), Git, npm, and plugins enabled. Your daemon must have normal Git author information and remote authentication.
 
 ```bash
 git clone https://github.com/papag00se/paseo-overcommitted.git
@@ -62,7 +62,7 @@ Merging, stale-lock cleanup and finishing a waiting push each have a switch unde
 
 ## Compatibility
 
-Designed for Linux and Paseo 0.9.1. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. If the remote branch has moved ahead, it merges those commits in only when Git proves the merge has no conflicts and replaces no ignored local files; otherwise it reports the problem and leaves everything as it was. Git ignore rules apply; review what your repositories track before enabling automatic staging.
+Designed for Linux and Paseo 0.11.2 through 0.11.x. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. If the remote branch has moved ahead, it merges those commits in only when Git proves the merge has no conflicts and replaces no ignored local files; otherwise it reports the problem and leaves everything as it was. Git ignore rules apply; review what your repositories track before enabling automatic staging.
 
 Activity checks are observations, not an atomic idle lease. Unknown activity information produces a warning and does not prevent a commit or push. The [reference](docs/REFERENCE.md) explains the ownership, retry, branch, and race-window contracts in detail.
 
@@ -73,6 +73,8 @@ npm run typecheck
 npm test
 ```
 
-Tests use temporary repositories and local bare remotes rather than your real remotes.
+Tests use temporary repositories and local bare remotes rather than your real remotes. The SDK versions are pinned to 0.11.2. The plugin SDK is a development dependency; the client SDK is also needed at runtime by the timer's local connection and remains a production dependency.
+
+After editing, run `paseo plugin reload overcommitted` and verify `paseo plugin ls overcommitted --json` reports `running` without an error. No daemon restart or reinstall is needed. Existing settings and saved warning dismissals are preserved. Warnings use the current screen and component-based sidebar APIs; the row count updates and the row disappears when all visible warnings are dismissed.
 
 [Settings, activity checks, branch routing, retries, and failure visibility →](docs/REFERENCE.md)

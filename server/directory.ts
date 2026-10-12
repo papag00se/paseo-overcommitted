@@ -58,7 +58,7 @@ export async function rootOf(cwd: string): Promise<string | null> {
   catch { return null; }
 }
 
-// 0.9.1 does not expose a PaseoApi on server entry startup, only in callbacks.
+// 0.11.2 exposes a PaseoApi in server callbacks, not entry startup.
 // A short-lived, daemon-local SDK connection makes the timer work with zero agents
 // and zero connected UI clients. Never inherits PASEO_HOST from a launching agent.
 export async function connectLocal() {
