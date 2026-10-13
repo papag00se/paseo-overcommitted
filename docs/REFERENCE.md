@@ -66,7 +66,7 @@ paseo plugin ls
 paseo plugin logs overcommitted
 ```
 
-Plugins must already be enabled on the target daemon. The daemon needs `git`, the matching `paseo` CLI, readable `/proc`, a loopback WebSocket listener, and normal Git author/authentication configuration. `PASEO_HOME` selects the local daemon (default `~/.paseo`); `PASEO_HOST` is deliberately not inherited. Remote hosts require installing the plugin on that host, not operating its files from this machine.
+Plugins must already be enabled on the target daemon. The daemon needs `git`, the matching `paseo` CLI, readable `/proc`, a loopback WebSocket listener, and normal Git author/authentication configuration. `PASEO_HOME` selects the local daemon (default `~/.paseo`); `PASEO_HOST` is deliberately not inherited. The plugin's IPC parent identifies its owning daemon worker; `/proc` ancestry must tie that worker to the selected home's published instance (the worker itself for foreground instances, or its supervisor for desktop-managed instances). CLI `workerPid` is optional when the detailed provider-health query times out; absence is not evidence that the local daemon is missing. When present, it must agree with the IPC owner. Non-IPC callers still require a live worker identity. Remote hosts require installing the plugin on that host, not operating its files from this machine.
 
 Paseo 0.11.2 only provides a server-side SDK session inside callbacks, not during plugin startup. The scheduler therefore opens/closes a local SDK connection for each sweep; there is no persistent external polling process. Cleanup stops timers and cancels in-flight mutations. Tests use temporary repositories and local bare remotes, never your real remotes.
 
@@ -79,3 +79,12 @@ Both SDK versions are pinned to 0.11.2. `@getpaseo/plugin` is development-only, 
 - Live status RPC succeeded. Live preview returned 31 reports, with no daemon errors and only skipped, scanned, clean or eligible outcomes; preview performed no Git mutations.
 - Production dependency audit found no vulnerabilities. The full development tree reports 20 (5 moderate, 15 high); no unrelated forced dependency upgrades were applied.
 - Wide/compact visual checks and theme switching were not performed during this migration. Existing theme colors and compact spacing are unchanged.
+
+### Partial-status ownership repair (2026-10-12)
+
+Hourly checks were failing before repository inspection because `paseo daemon status` reported a reachable local instance but its optional 1,500 ms detailed-status query timed out, omitting `workerPid`. Overcommitted incorrectly treated that as no local loopback daemon. Ownership is now taken from the plugin's existing IPC parent and verified against the selected home's instance ancestry, independent of optional provider-health details. Different-home, mismatched-worker, non-loopback and invalid-identity cases still fail closed.
+
+- Six ownership regressions fail against the old gate and pass with the repair; typecheck and all **83 tests** pass.
+- Hot-reloaded only `overcommitted`; the plugin is running and the daemon/agent processes were not restarted.
+- A live read-only preview returned **34 reports**: 16 skipped, 1 scanned, 14 clean and 3 eligible, with **no daemon errors**. No repository mutations were performed by this preview.
+- The earlier persisted daemon warning remains visible by design: previews do not resolve prior failures. The next successful scheduled non-preview check will resolve it. Dismissal can hide only that old occurrence; neither action claims that pending repository work has been pushed.
