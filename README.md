@@ -14,7 +14,7 @@
 
 💾 Ever lost an afternoon of agent work because nobody committed it?
 
-⏰ Overcommitted checks your Paseo projects and worktrees on a schedule, then commits and pushes anything left sitting there. 🛡️ It waits while an agent, script or terminal is busy. It can route protected branches like `main` to an interim branch instead. ⚠️ If something can't be pushed, it stays flagged in the sidebar until you deal with it.
+⏰ Overcommitted checks your Paseo projects and worktrees on a schedule, then commits and pushes anything left sitting there. 🛡️ It waits while an agent, script or terminal is busy. It can route protected branches like `main` to an interim branch instead. ⚠️ Current failures appear in the sidebar; each completed check replaces the warnings with its latest results.
 
 ## Features
 
@@ -26,7 +26,7 @@
 | 🗂️ Nested repos | Optionally sweeps Git repos inside a project folder |
 | 🔧 Automatic fixes | Merges a remote that moved ahead, clears crashed locks, finishes waiting pushes, saves detached work, and routes around remote branch protection. Only when nothing can be lost |
 | 🤖 Optional agent help | Hands merge conflicts and failed commit checks to a Paseo agent, which never pushes or skips checks |
-| ⚠️ Persistent warnings | Unpushed work stays visible across reloads until it's resolved |
+| ⚠️ Current warnings | Latest check's failures survive reloads and refresh on the next check |
 | 🔍 Preview mode | See what would happen without staging, committing or pushing |
 | ✍️ Local commit messages | Built from task titles, changed paths and diff stats. No model calls |
 

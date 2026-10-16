@@ -8,6 +8,7 @@ const identity = z.object({ directory: z.string(), at: z.string() });
 const schema = z.object({ reports: z.array(reportSchema), failures: z.array(reportSchema), dismissed: z.array(identity).default([]) });
 type WarningIdentity = z.infer<typeof identity>;
 const same = (a: WarningIdentity, b: WarningIdentity) => a.directory === b.directory && a.at === b.at;
+const currentFailures = (reports: Report[]) => reports.filter(report => report.outcome === "error");
 
 // Status metadata only. Dismissal acknowledges a particular warning, never the
 // repository's pending Git work. A subsequent failed attempt appears again.
@@ -21,7 +22,8 @@ export class StatusStore {
   async load() {
     try {
       const state = schema.parse(JSON.parse(await readFile(this.path, "utf8")));
-      this.reports = state.reports; this.failures = state.failures; this.dismissed = state.dismissed;
+      // Older versions accumulated failures beyond the latest real-check reports.
+      this.reports = state.reports; this.failures = currentFailures(state.reports); this.dismissed = state.dismissed;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
         this.failures = [{ at: new Date().toISOString(), directory: "status", outcome: "error", message: `Cannot load prior push status: ${(e as Error).message}` }];
@@ -50,13 +52,8 @@ export class StatusStore {
     if (preview) { this.reports = reports; return; }
     await this.update(() => {
       this.reports = reports;
-      const failures = new Map(this.failures.map(r => [r.directory, r]));
-      for (const report of reports) {
-        if (report.outcome === "error") failures.set(report.directory, report);
-        else if (report.outcome === "pushed" || report.outcome === "clean") failures.delete(report.directory);
-      }
-      if (reports.length && !reports.some(r => r.directory === "daemon" && r.outcome === "error")) failures.delete("daemon");
-      this.failures = [...failures.values()];
+      // Warnings describe this check, not a history of failed attempts.
+      this.failures = currentFailures(reports);
       this.dismissed = this.dismissed.filter(d => this.failures.some(f => same(d, f)));
     });
   }

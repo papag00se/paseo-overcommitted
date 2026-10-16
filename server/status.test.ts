@@ -9,24 +9,51 @@ import { preferences, type Report } from "../shared/contracts";
 
 const report = (outcome: Report["outcome"], directory = "/repo"): Report => ({ at: new Date().toISOString(), directory, outcome, message: outcome === "error" ? "Push rejected; work remains pending" : outcome });
 
-test("failure status survives restart, skip, preview and missing repositories; only actual success clears it", async t => {
+test("each real check replaces saved warnings with only its current errors", async t => {
   const base = await mkdtemp(join(tmpdir(), "overcommitted-status-test-"));
   t.after(() => rm(base, { recursive: true, force: true }));
   const file = join(base, "status.json");
-  const first = new StatusStore(file); await first.load();
-  await first.record([report("error")], false);
-  const second = new StatusStore(file); await second.load();
-  assert.equal(second.failures.length, 1);
-  await second.record([report("skipped")], false);
-  await second.record([report("eligible")], true);
-  await second.record([report("clean")], true);
-  await second.record([report("pushed", "/different-repo")], false);
-  assert.equal(second.failures.length, 1);
-  const third = new StatusStore(file); await third.load();
-  assert.equal(third.failures.length, 1);
-  await third.record([report("pushed")], false);
-  const fourth = new StatusStore(file); await fourth.load();
-  assert.deepEqual(fourth.failures, []);
+  const stale = { ...report("error", "/koralabs"), message: "Submodule changes require a separate commit/push; refusing a partial checkpoint" };
+  for (const current of [[report("skipped", stale.directory)], [report("clean", stale.directory)], [report("pushed", "/different-repo")], [], [report("error", "/current-repo"), report("scanned", "/parent")]]) {
+    const first = new StatusStore(file);
+    await first.record([stale, report("error", "daemon")], false);
+    const restored = new StatusStore(file); await restored.load();
+    assert.deepEqual(restored.visibleFailures, first.visibleFailures, "warnings survive reload until the next real check");
+    await restored.record(current, false);
+    const expected = current.filter(r => r.outcome === "error");
+    assert.deepEqual(restored.visibleFailures, expected, "skipped, absent and resolved failures must not linger");
+    const reloaded = new StatusStore(file); await reloaded.load();
+    assert.deepEqual(reloaded.failures, expected, "replacement must survive another reload");
+    assert.deepEqual(reloaded.reports, current);
+  }
+});
+
+test("loading older saved status drops warnings missing from its latest real-check reports", async t => {
+  const base = await mkdtemp(join(tmpdir(), "overcommitted-legacy-status-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const file = join(base, "status.json"), current = report("error", "/current-repo");
+  await writeFile(file, JSON.stringify({ reports: [report("skipped"), current], failures: [report("error"), current], dismissed: [] }));
+  const store = new StatusStore(file); await store.load();
+  assert.deepEqual(store.visibleFailures, [current], "reload must not restore historical errors excluded from the latest check");
+});
+
+test("previews leave saved real-check warnings and dismissals unchanged", async t => {
+  const base = await mkdtemp(join(tmpdir(), "overcommitted-preview-status-"));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const file = join(base, "status.json"), failure = report("error");
+  const store = new StatusStore(file);
+  await store.record([failure], false);
+  await store.dismiss([failure]);
+  for (const preview of [[], [report("clean")], [report("eligible")], [report("error", "daemon")]]) {
+    await store.record(preview, true);
+    assert.deepEqual(store.reports, preview);
+    assert.deepEqual(store.failures, [failure]);
+    assert.deepEqual(store.visibleFailures, []);
+    const restored = new StatusStore(file); await restored.load();
+    assert.deepEqual(restored.reports, [failure]);
+    assert.deepEqual(restored.failures, [failure]);
+    assert.deepEqual(restored.visibleFailures, []);
+  }
 });
 
 test("dismissal survives restart without resolving failed work or suppressing retries", async t => {
@@ -42,9 +69,7 @@ test("dismissal survives restart without resolving failed work or suppressing re
   assert.equal(restored.failures.length, 1);
   assert.deepEqual(restored.visibleFailures, []);
   await restored.record([report("clean")], true);
-  await restored.record([report("skipped")], false);
-  await restored.record([report("clean", "/other")], false);
-  assert.equal(restored.failures.length, 1);
+  assert.deepEqual(restored.failures, [failure]);
   assert.deepEqual(restored.visibleFailures, []);
   let attempts = 0;
   const scheduler = new Scheduler(async () => { attempts++; return [report("pushed")]; }, restored);
@@ -84,6 +109,10 @@ test("failed persistence leaves warnings visible and does not poison subsequent 
   await rm(directory, { recursive: true }); await writeFile(directory, "not a directory");
   await assert.rejects(store.dismiss([failure]));
   assert.deepEqual(store.visibleFailures, [failure]);
+  const current = report("error", "/current-repo");
+  await assert.rejects(store.record([current], false));
+  assert.deepEqual(store.reports, [failure]);
+  assert.deepEqual(store.visibleFailures, [failure], "a failed replacement must retain the last saved warnings");
   await rm(directory); await mkdir(directory);
   assert.equal(await store.dismiss([failure]), 1);
   const restored = new StatusStore(file); await restored.load();
@@ -95,12 +124,24 @@ test("scheduler persists daemon errors and schedules a later retry instead of ca
   const base = await mkdtemp(join(tmpdir(), "overcommitted-scheduler-test-"));
   t.after(() => rm(base, { recursive: true, force: true }));
   const file = join(base, "status.json");
-  const scheduler = new Scheduler(async () => { throw new Error("connection lost"); }, new StatusStore(file));
+  const store = new StatusStore(file);
+  await store.record([report("error")], false);
+  let disconnected = true;
+  const scheduler = new Scheduler(async () => {
+    if (disconnected) throw new Error("connection lost");
+    return [];
+  }, store);
   t.after(() => scheduler.stop());
   await scheduler.restore(); scheduler.configure(preferences.schema.parse({}));
   await assert.rejects(scheduler.run(false), /connection lost/);
   assert.ok(scheduler.nextCheck);
   const restored = new StatusStore(file); await restored.load();
+  assert.equal(restored.failures.length, 1, "a daemon failure replaces old repository warnings too");
   assert.equal(restored.failures[0].directory, "daemon");
   assert.match(restored.failures[0].message, /connection lost/);
+  disconnected = false;
+  await scheduler.run(false);
+  assert.deepEqual(scheduler.failures, [], "an empty completed check clears the old daemon warning");
+  await restored.load();
+  assert.deepEqual(restored.failures, []);
 });
