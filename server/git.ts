@@ -1,4 +1,5 @@
-import { access, lstat, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { access, lstat, mkdtemp, readFile, rename, rm, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git } from "./command";
 import { protectedNames, selectInterim } from "./branches";
@@ -172,10 +173,17 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       const stagedTree = (await git(root, ["write-tree"])).trim();
       await check();
       if ((await git(root, ["write-tree"])).trim() !== stagedTree || (await git(root, ["rev-parse", "--verify", "HEAD"]).catch(() => "")).trim() !== initialHead) throw new Error("Index or HEAD changed before commit");
-      await git(root, ["commit", "-m", commitMessage(names, summary, titles)], signal).catch(error => {
-        const message = (error as Error).message;
-        throw NOT_A_CHECK.test(message) ? error : new Resolvable(message, "precheck", stagedTree, message);
-      });
+      // A large diffstat can exceed Linux's per-argument limit (E2BIG).
+      // Keep the full message out of argv without changing hooks or signing.
+      const messageDir = await mkdtemp(join(tmpdir(), "overcommitted-message-"));
+      try {
+        const messagePath = join(messageDir, "message");
+        await writeFile(messagePath, commitMessage(names, summary, titles), { mode: 0o600 });
+        await git(root, ["commit", "--file", messagePath], signal).catch(error => {
+          const message = (error as Error).message;
+          throw NOT_A_CHECK.test(message) ? error : new Resolvable(message, "precheck", stagedTree, message);
+        });
+      } finally { await rm(messageDir, { recursive: true, force: true }); }
     }
     let commit = await head(root);
     await check();
