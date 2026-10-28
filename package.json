@@ -1,5 +1,5 @@
 {
-  "name": "paseo-overcommitted",
+  "name": "@papagoose/overcommitted",
   "version": "0.1.0",
   "description": "Idle-worktree commits and pushes with protected-branch routing for Paseo",
   "repository": { "type": "git", "url": "git+https://github.com/papag00se/paseo-overcommitted.git" },
