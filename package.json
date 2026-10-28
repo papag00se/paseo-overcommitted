@@ -1,17 +1,20 @@
 {
-  "name": "overcommitted",
-  "private": true,
+  "name": "paseo-overcommitted",
   "version": "0.1.0",
   "description": "Idle-worktree commits and pushes with protected-branch routing for Paseo",
+  "repository": { "type": "git", "url": "git+https://github.com/papag00se/paseo-overcommitted.git" },
   "files": [
     "paseo-plugin.json",
+    "OVERVIEW.md",
+    "npm-shrinkwrap.json",
     "index.client.ts",
     "index.client.tsx",
     "index.server.ts",
     "index.server.tsx",
     "client/",
     "server/",
-    "shared/"
+    "shared/",
+    "!server/*.test.ts"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
