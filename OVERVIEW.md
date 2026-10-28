@@ -1,0 +1,5 @@
+Overcommitted checks registered Paseo projects and worktrees for uncommitted changes, then stages, commits, and pushes eligible repositories on a schedule. It can route protected branches to interim branches and defer work when it observes activity. Preview mode shows the proposed actions without staging, committing, or pushing.
+
+Requires Linux, Git, npm, and Paseo 0.11.2 through 0.11.x. Configure Git author information and remote authentication on the daemon host. Automatic checks are enabled by default; review the settings and use Preview before relying on them. Protected branch names and optional agent help must be configured explicitly.
+
+The plugin reads local repositories, process activity, and Paseo workspace state. It writes Git commits and can push repository contents to configured Git remotes. Optional agent assistance sends relevant failure information to the selected provider. Activity detection is observational, not an atomic lock: unknown activity produces a warning but does not prevent a commit or push. Git ignore rules apply to automatic staging.

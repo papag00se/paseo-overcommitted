@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, readFile, rm, mkdir, chmod } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git } from "./command";
-import { checkpoint } from "./git";
+import { checkpoint, commitMessage } from "./git";
 import { preferences } from "../shared/contracts";
 import { sweepWithApi } from "./sweep";
 import type { PaseoApi } from "@getpaseo/client";
@@ -37,6 +37,23 @@ test("stages tracked, untracked, deleted and previously staged files; respects i
   const body = await git(root, ["log", "-1", "--format=%B"]);
   assert.match(body, /Implement parser/); assert.match(body, /base\.txt/); assert.match(body, /new\.txt/);
   await assert.rejects(git(remote, ["show", "master:secret"]));
+});
+
+test("checkpoints a message larger than 128 KiB without truncation and runs commit hooks", async t => {
+  const { root, remote } = await fixture(t);
+  const names = Array.from({ length: 2349 }, (_, i) => `generated-${String(i).padStart(4, "0")}-${"x".repeat(90)}.txt`);
+  await Promise.all(names.map(name => writeFile(join(root, name), "generated\n")));
+  await git(root, ["add", "."]);
+  const summary = await git(root, ["diff", "--cached", "--stat"]);
+  const expected = commitMessage(names, summary, []);
+  assert.ok(Buffer.byteLength(expected) > 128 * 1024, "message must exceed Linux's single-argument limit");
+  const hook = join(root, ".git", "hooks", "commit-msg");
+  await writeFile(hook, '#!/bin/sh\ncp "$1" hook-message.txt\n');
+  await chmod(hook, 0o755);
+  assert.equal((await checkpoint(root, [], guard, false, defaults)).outcome, "pushed");
+  assert.equal(await readFile(join(root, "hook-message.txt"), "utf8"), expected);
+  assert.equal(await git(remote, ["log", "-1", "--format=%B"]), `${expected}\n`);
+  assert.equal((await git(remote, ["ls-tree", "--name-only", "master"])).trim().split("\n").length, names.length + 1);
 });
 
 test("protected master is unchanged; new interim branch keeps staged and unstaged contents", async t => {
