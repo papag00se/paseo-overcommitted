@@ -2,7 +2,10 @@
   "name": "@papagoose/overcommitted",
   "version": "0.1.0",
   "description": "Idle-worktree commits and pushes with protected-branch routing for Paseo",
-  "repository": { "type": "git", "url": "git+https://github.com/papag00se/paseo-overcommitted.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/papag00se/paseo-overcommitted.git"
+  },
   "files": [
     "paseo-plugin.json",
     "OVERVIEW.md",
@@ -21,17 +24,17 @@
     "test": "node --import tsx --test server/*.test.ts"
   },
   "devDependencies": {
-    "@getpaseo/plugin": "0.11.2",
+    "@getpaseo/plugin": "0.14.0",
     "@tanstack/react-query": "^5.90.11",
     "@types/node": "^26.6.4",
     "@types/react": "~19.2.0",
-    "react": "19.1.0",
-    "react-native": "0.81.5",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "zod": "^4.4.3"
   },
   "dependencies": {
-    "@getpaseo/client": "0.11.2"
+    "@getpaseo/client": "0.14.0"
   }
 }

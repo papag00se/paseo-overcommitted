@@ -1,6 +1,6 @@
 # Overcommitted
 
-A trusted Paseo 0.11.2–0.11.x plugin for Linux (both daemon and app). Every 60 minutes (configurable), stage, commit and push changes in eligible registered projects and active worktrees. Works with no agents and no connected app.
+A trusted Paseo 0.14.x plugin for Linux (both daemon and app). Every 60 minutes (configurable), stage, commit and push changes in eligible registered projects and active worktrees. Works with no agents and no connected app.
 
 ## Settings
 
@@ -70,7 +70,7 @@ Plugins must already be enabled on the target daemon. The daemon needs `git`, th
 
 Paseo 0.11.2 only provides a server-side SDK session inside callbacks, not during plugin startup. The scheduler therefore opens/closes a local SDK connection for each sweep; there is no persistent external polling process. Cleanup stops timers and cancels in-flight mutations. Tests use temporary repositories and local bare remotes, never your real remotes.
 
-Both SDK versions are pinned to 0.11.2. `@getpaseo/plugin` is development-only, supplied by the host at runtime. `@getpaseo/client` remains a production dependency because the timer opens its own daemon-local connection, and Paseo does not supply that module to server bundles. Git installs retain the preparation command to install it. The 0.11 migration changes no settings schema, document ID, warning persistence or Git rules. Reload the existing installation with `paseo plugin reload overcommitted`, then require `running` and no error from `paseo plugin ls overcommitted --json`.
+Both SDK versions are pinned to 0.14.0. `@getpaseo/plugin` is development-only, supplied by the host at runtime. `@getpaseo/client` remains a production dependency because the timer opens its own daemon-local connection, and Paseo does not supply that module to server bundles. Git installs retain the preparation command to install it. The 0.11 migration changes no settings schema, document ID, warning persistence or Git rules. Reload the existing installation with `paseo plugin reload overcommitted`, then require `running` and no error from `paseo plugin ls overcommitted --json`.
 
 ### 0.11.2 migration verification (2026-10-12)
 
