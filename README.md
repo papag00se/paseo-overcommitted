@@ -4,7 +4,7 @@
 
 # Paseo Overcommitted
 
-![Paseo compatibility](https://img.shields.io/badge/Paseo-0.14.0-22c55e?style=flat-square)
+![Paseo compatibility](https://img.shields.io/badge/Paseo-0.14%E2%80%930.16-22c55e?style=flat-square)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178c6?style=flat-square&logo=typescript&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Linux-64748b?style=flat-square)
 
@@ -44,7 +44,7 @@ flowchart LR
 
 ## Getting started
 
-Requires Linux, Paseo 0.14 (daemon and app, supported through 0.14.x), Git, npm, and plugins enabled. Your daemon must have normal Git author information and remote authentication.
+Requires Linux, Paseo 0.14 through 0.16 (daemon and app; run on 0.14, typechecked against 0.16.0), Git, npm, and plugins enabled. Your daemon must have normal Git author information and remote authentication.
 
 ```bash
 git clone https://github.com/papag00se/paseo-overcommitted.git
@@ -62,7 +62,7 @@ Merging, stale-lock cleanup and finishing a waiting push each have a switch unde
 
 ## Compatibility
 
-Designed for Linux and Paseo 0.14.x. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. If the remote branch has moved ahead, it merges those commits in only when Git proves the merge has no conflicts and replaces no ignored local files; otherwise it reports the problem and leaves everything as it was. Git ignore rules apply; review what your repositories track before enabling automatic staging.
+Designed for Linux and Paseo 0.14 through 0.16. `/proc` provides process observations. The plugin never force-pushes, resets, stashes, or rebases. If the remote branch has moved ahead, it merges those commits in only when Git proves the merge has no conflicts and replaces no ignored local files; otherwise it reports the problem and leaves everything as it was. Git ignore rules apply; review what your repositories track before enabling automatic staging.
 
 Activity checks are observations, not an atomic idle lease. Unknown activity information produces a warning and does not prevent a commit or push. The [reference](docs/REFERENCE.md) explains the ownership, retry, branch, and race-window contracts in detail.
 
