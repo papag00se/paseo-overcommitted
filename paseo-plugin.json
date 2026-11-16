@@ -2,7 +2,7 @@
   "id": "overcommitted",
   "description": "Commit and push Paseo worktrees unless known activity blocks them, with protected-branch routing.",
   "requirements": {
-    "paseo": ">=0.14.0 <0.15.0"
+    "paseo": ">=0.14.0 <0.17.0"
   },
   "build": [
     [
