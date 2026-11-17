@@ -1,9 +1,7 @@
 import { git } from "./command";
 import type { Preferences } from "../shared/contracts";
+import { Excluded, excludedChecker, protectedChecker } from "./rules";
 
-export function protectedNames(settings: Preferences): Set<string> {
-  return new Set(settings.protectBranches ? settings.protectedBranches.split(",").map(s => s.trim()).filter(Boolean) : []);
-}
 export function interimName(template: string, branch: string): string {
   return template.includes("<current branch name>")
     ? template.replaceAll("<current branch name>", branch)
@@ -21,10 +19,12 @@ export async function selectInterim(root: string, source: string, remote: string
   const remoteRefs = new Map((await git(root, ["ls-remote", "--heads", "--", remote])).trim().split("\n").filter(Boolean)
     .map(line => { const [oid, ref] = line.split("\t"); return [ref.replace(/^refs\/heads\//, ""), oid]; }));
   const occupied = new Set((await git(root, ["worktree", "list", "--porcelain"])).split("\n").filter(s => s.startsWith("branch refs/heads/")).map(s => s.slice(18)));
-  const protectedSet = protectedNames(settings);
+  const protect = await protectedChecker(settings, root), exclude = await excludedChecker(settings, root);
   for (let ordinal = 1; ordinal <= 1000; ordinal++) {
     const name = ordinal === 1 ? base : `${base}-${ordinal}`;
-    if (protectedSet.has(name) || occupied.has(name)) continue;
+    const refused = exclude.hits(name);
+    if (refused) throw new Excluded(`skipped: interim branch ${name} excluded by rule ${refused.line}`);
+    if (protect.hits(name) || occupied.has(name)) continue;
     // Git cannot have both refs/heads/foo and refs/heads/foo/bar.
     if ([...local.keys(), ...remoteRefs.keys()].some(n => n !== name && (n.startsWith(`${name}/`) || name.startsWith(`${n}/`)))) continue;
     let compatible = true;

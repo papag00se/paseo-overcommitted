@@ -27,6 +27,9 @@ export function Settings({ theme, layout }: PluginSurfaceProps) {
   const muted = { color: theme.colors.foregroundMuted };
   if (settings.status !== "ready" || !draft) return <Text style={text}>{settings.status === "loading" ? "Loading settings…" : settings.status === "ready" ? "Loading editor…" : settings.error}</Text>;
   const values = draft.values;
+  const rulesBox = (value: string, onChangeText: (text: string) => void, placeholder: string, editable = true) =>
+    <TextInput multiline value={value} onChangeText={onChangeText} editable={editable} placeholder={placeholder} placeholderTextColor={theme.colors.foregroundMuted} autoCapitalize="none" autoCorrect={false}
+      style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace", opacity: editable ? 1 : 0.5 }} />;
   const change = (patch: Partial<Preferences>) => { setDraft({ ...draft, values: { ...values, ...patch } }); setSaved(false); };
   async function save() {
     if (!draft) return;
@@ -46,23 +49,23 @@ export function Settings({ theme, layout }: PluginSurfaceProps) {
       <SettingsCard>
         <SettingsSwitch label="Enable automatic commits and pushes" value={values.enabled} onValueChange={enabled => change({ enabled })} />
         <SettingsInput label="Check interval (minutes)" initialValue={minutes} onChangeText={setMinutes} hint="Default: 60. From 1 minute to 7 days. Saving restarts the timer." />
-        <SettingsSwitch label="Don't push to these branch names automatically:" value={values.protectBranches} onValueChange={protectBranches => change({ protectBranches })} />
-        <SettingsInput label="Branch names (comma separated)" initialValue={values.protectedBranches} disabled={!values.protectBranches} onChangeText={protectedBranches => change({ protectedBranches })} hint="Exact, case-sensitive branch names, for example: main, master, production" />
-      </SettingsCard>
-      <SettingsCard>
-        <SettingsSwitch label="Create and push to an interim branch with prefix:" value={values.useInterimBranch} onValueChange={useInterimBranch => change({ useInterimBranch })} hint="The interim branch stays checked out. When this is off, protected branches stay untouched and unpushed work raises a persistent warning. Always used for: protected branch names above, including a waiting push whose branch became protected; branches the remote refuses as protected (for example GitHub branch protection; refusals over secrets are never routed around); and changes on a detached HEAD, saved to a new branch such as overcommitted/detached-1a2b3c4. A clean detached checkout already on the remote is left alone." />
-        <SettingsInput label="Interim branch prefix" initialValue={values.interimPrefix} disabled={!values.useInterimBranch} onChangeText={interimPrefix => change({ interimPrefix })} hint="<current branch name> is a placeholder for the branch being preserved: overcommitted/<current branch name> on main pushes to overcommitted/main. A prefix without the placeholder gets the branch name appended. If that branch has diverged or is in use, -2, -3, … is added." />
-      </SettingsCard>
-      <SettingsCard>
-        <SettingsRow label="Check for child git repositories in these folders:" hint="Full paths, one per line. Each must be a known Paseo project or workspace folder. Repositories up to 4 levels below it (not hidden folders or node_modules) are checked like any other repository.">
-          <TextInput multiline value={values.childRepoFolders} onChangeText={childRepoFolders => change({ childRepoFolders })} placeholder={"/home/me/Work\n/home/me/src"} placeholderTextColor={theme.colors.foregroundMuted} autoCapitalize="none" autoCorrect={false}
-            style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace" }} />
+        <SettingsSwitch label="Don't push to protected branches automatically:" value={values.protectBranches} onValueChange={protectBranches => change({ protectBranches })} />
+        <SettingsRow label="Protected branches (one rule per line)" hint={"Each line is a folder pattern followed by branch patterns: /path/to/repo main release/*. The first line whose folder matches a repository decides for it, so put specific repositories above general ones. No branch patterns means every branch. Patterns: * (within one name), ** (across /), ?, [abc]; ! excludes (!main = every branch except main); * alone as the folder means every repository. ~ is your home folder; quote folders with spaces. Lines starting with # are notes.\nExamples:\n* main master\n~/Work/app !dev\nA plain list such as main, master still works and means * main master."}>
+          {rulesBox(values.protectedBranches, protectedBranches => change({ protectedBranches }), "* main master\n~/Work/hotfix-repo", values.protectBranches)}
         </SettingsRow>
       </SettingsCard>
       <SettingsCard>
-        <SettingsRow label="Never check these repositories:" hint="Full paths, one per line. A listed repository, symlinked aliases of it, and repositories nested below it are skipped by previews and real checks: nothing is staged, committed, switched or pushed there.">
-          <TextInput multiline value={values.excludedRepos} onChangeText={excludedRepos => change({ excludedRepos })} placeholder={"/home/me/Work/private-repo"} placeholderTextColor={theme.colors.foregroundMuted} autoCapitalize="none" autoCorrect={false}
-            style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace" }} />
+        <SettingsSwitch label="Create and push to an interim branch with prefix:" value={values.useInterimBranch} onValueChange={useInterimBranch => change({ useInterimBranch })} hint="The interim branch stays checked out. When this is off, protected branches stay untouched and unpushed work raises a persistent warning. Always used for: protected branches above, including a waiting push whose branch became protected; branches the remote refuses as protected (for example GitHub branch protection; refusals over secrets are never routed around); and changes on a detached HEAD, saved to a new branch such as overcommitted/detached-1a2b3c4. A clean detached checkout already on the remote is left alone." />
+        <SettingsInput label="Interim branch prefix" initialValue={values.interimPrefix} disabled={!values.useInterimBranch} onChangeText={interimPrefix => change({ interimPrefix })} hint="<current branch name> is a placeholder for the branch being preserved: overcommitted/<current branch name> on main pushes to overcommitted/main. A prefix without the placeholder gets the branch name appended. If that branch has diverged or is in use, -2, -3, … is added." />
+      </SettingsCard>
+      <SettingsCard>
+        <SettingsRow label="Check for child git repositories in these folders:" hint={"One folder pattern per line (no branch patterns). A pattern selects among the folders Paseo already knows as a project or workspace; each match is scanned up to 4 levels deep (not hidden folders or node_modules) and its repositories are checked like any other. A folder that is not known to Paseo is reported and skipped. Patterns: * (within one name), ** (across /), ?; ~ is your home folder; quote folders with spaces.\nExamples:\n/home/me/Work\n~/src/*"}>
+          {rulesBox(values.childRepoFolders, childRepoFolders => change({ childRepoFolders }), "/home/me/Work\n~/src/*")}
+        </SettingsRow>
+      </SettingsCard>
+      <SettingsCard>
+        <SettingsRow label="Never check these repositories:" hint={"One rule per line: a folder pattern, then optional branch patterns. A matching repository (including symlinked aliases and everything below the folder) is skipped while its checked-out branch matches, and nothing is ever pushed to a matching branch, including interim branches. No branch patterns means every branch. The first line whose folder matches decides, so a specific repository above a * line overrides it. Patterns: * (within one name), ** (across /), ?, [abc]; ! excludes (!main = every branch except main). ~ is your home folder; quote folders with spaces. Lines starting with # are notes.\nExamples:\n~/Work/private-repo\n~/Work/app main release/*\n~/Work/lib !wip/*"}>
+          {rulesBox(values.excludedRepos, excludedRepos => change({ excludedRepos }), "~/Work/private-repo\n~/Work/app main release/*")}
         </SettingsRow>
       </SettingsCard>
       <SettingsSection title="Automatic fixes">

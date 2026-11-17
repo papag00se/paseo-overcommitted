@@ -23,7 +23,8 @@
 | ⏰ Scheduled Git housekeeping | Checks every 60 minutes by default, from 1 minute to 7 days |
 | 👀 Activity-aware | Busy agents, scripts, terminals and processes put a repo off until later |
 | 🔀 Branch routing | Protect branches like `main` and push their work to `overcommitted/main` instead |
-| 🗂️ Nested repos | Optionally sweeps Git repos inside a project folder |
+| 🗂️ Nested repos | Optionally sweeps Git repos inside project folders you name, by folder pattern |
+| 🚫 Per-repository rules | Never check a repository, or only certain branches of it, and never push to chosen branches. One short rule syntax shared by three settings |
 | 🔧 Automatic fixes | Merges a remote that moved ahead, clears crashed locks, finishes waiting pushes, saves detached work, and routes around remote branch protection. Only when nothing can be lost |
 | 🤖 Optional agent help | Hands merge conflicts and failed commit checks to a Paseo agent, which never pushes or skips checks |
 | ⚠️ Current warnings | Latest check's failures survive reloads and refresh on the next check |
@@ -54,9 +55,39 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
-Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is opt-in. To exempt repositories entirely, list their full paths under **Never check these repositories** (nested repositories and symlinked aliases are covered too). In the interim prefix, `<current branch name>` is a placeholder for the protected branch's name: `overcommitted/<current branch name>` turns `main` into `overcommitted/main`. **Save settings** is at the top of the page. Leave settings with **← Back** or <kbd>Esc</kbd>.
+Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch protection is opt-in. To exempt repositories, add rules under **Never check these repositories** (see [Rules](#rules)); nested repositories and symlinked aliases are covered too. In the interim prefix, `<current branch name>` is a placeholder for the protected branch's name: `overcommitted/<current branch name>` turns `main` into `overcommitted/main`. **Save settings** is at the top of the page. Leave settings with **← Back** or <kbd>Esc</kbd>.
 
 Merging, stale-lock cleanup and finishing a waiting push each have a switch under **Automatic fixes**. Interim-branch routing for protected branches and detached HEADs is always on while interim branches are enabled. Agent help is off until you turn on **Use an agent to resolve conflicts or pre-checks** and pick a `provider/model`.
+
+## Rules
+
+**Never check these repositories**, **Protected branches** and **Check for child git repositories in these folders** all read the same one-rule-per-line syntax:
+
+```text
+<folder-pattern> [<branch-pattern> ...]
+```
+
+```text
+# Skip a private repository entirely
+~/Work/private-repo
+# Skip app only while it is on main or a release branch; never push there either
+~/Work/app main release/*
+# Everything under lib except branches starting wip/
+~/Work/lib !wip/*
+# Quote folders containing spaces
+"/home/me/My Projects/app" main
+```
+
+- **Folder patterns** match the repository's folder and its real path (so a symlink alias is covered). `*` stays inside one folder name, `**` crosses folders, `?` is one character, `~` is your home folder, and a path rule also covers everything below the folder. A lone `*` means every repository. Folders must be full paths (or start with `~`); anything else is rejected when you save.
+- **Branch patterns** are git-style: `*`, `**`, `?`, `[abc]`, case-sensitive. A leading `!` excludes: `!main` means every branch except main; `release/* !release/old` means release branches except `release/old`. No branch patterns means every branch.
+- **Order matters.** Per setting, the first line whose folder matches a repository decides for it; later lines are ignored for that repository. Put a specific repository above a `*` line to override it.
+- Blank lines and lines starting with `#` are ignored.
+
+| Setting | What the branch patterns mean |
+| --- | --- |
+| Never check these repositories | Skip the repository while its checked-out branch matches. Also refuses any push whose destination matches, including interim `overcommitted/...` branches. Reports show `skipped: excluded by rule <line>`. |
+| Protected branches | The branches protected for matching repositories. Previews and reports show the rule that protected a branch. A plain list such as `main, master` still works and means `* main master`. |
+| Child repository folders | Folder patterns only. A pattern selects among the folders Paseo already knows as a project or workspace; their repositories up to 4 levels down are checked. |
 
 ![Overcommitted settings in Paseo: automatic commits, check interval, protected branch names, interim branch prefix, child repository folders, automatic fixes and agent help](docs/media/settings.png)
 

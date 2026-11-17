@@ -2,10 +2,12 @@ import type { PaseoApi } from "@getpaseo/client";
 import type { Preferences, Report } from "../shared/contracts";
 import { agentBlocker, connectLocal, familyIds, parentId, rootOf, snapshot, type Snapshot } from "./directory";
 import { inside, processBlocker, processes, type ProcessInspector } from "./processes";
-import { checkpoint } from "./git";
+import { checkpoint, currentBranch } from "./git";
 import { ActivityBlocked } from "./activity";
 import { requestAgent, Resolvable } from "./agent";
-import { childRepoFolders, excludedPaths, findChildRepositories, isExcluded } from "./discovery";
+import { findChildRepositories } from "./discovery";
+import { checkerFor, compileRules, repoPaths, Excluded, type CompiledRule } from "./rules";
+import { matchPath } from "../shared/rules";
 import { relative, resolve } from "node:path";
 
 export async function sweep(settings: Preferences, preview: boolean, signal: AbortSignal): Promise<Report[]> {
@@ -27,39 +29,45 @@ export async function sweepWithApi(api: PaseoApi, daemonPid: number, settings: P
     return roots.get(cwd)!;
   };
   const directories = new Set<string>();
-  const configured = new Set(childRepoFolders(settings.childRepoFolders));
+  // Opt-in discovery: only below folders that Paseo itself knows as a project
+  // or workspace. A rule's path glob selects among those known folders.
+  const known = [...new Set([...projects.projects.map(p => p.projectRootPath), ...initial.workspaces.map(w => w.workspaceDirectory)].map(p => resolve(p)))];
+  const folderRules = await compileRules(settings.childRepoFolders, "folders");
+  const matched = new Map<string, CompiledRule>();
+  for (const rule of folderRules) {
+    const hits: string[] = [];
+    for (const folder of known) if (matchPath(rule.patterns, await repoPaths(folder), false)) { hits.push(folder); if (!matched.has(folder)) matched.set(folder, rule); }
+    if (!hits.length) reports.push({ at: new Date().toISOString(), directory: rule.patterns[0], outcome: "skipped", message: `Not a known Paseo project or workspace folder; child repositories were not checked (rule ${rule.line})` });
+  }
   for (const cwd of new Set([...projects.projects.map(p => p.projectRootPath), ...initial.workspaces.map(w => w.workspaceDirectory), ...initial.agents.filter(a => !parentId(a)).map(a => a.cwd)])) {
     const r = await root(cwd);
     if (r) directories.add(r);
-    else if (configured.has(resolve(cwd))) continue; // Reported below as a scanned folder.
+    else if (matched.has(resolve(cwd))) continue; // Reported below as a scanned folder.
     else reports.push({ at: new Date().toISOString(), directory: cwd, outcome: "skipped", message: "Not an accessible Git worktree" });
   }
-  // Opt-in discovery: only below folders that Paseo itself knows as a project
-  // or workspace. Discovered repositories go through the same checks as others.
-  const known = new Set([...projects.projects.map(p => p.projectRootPath), ...initial.workspaces.map(w => w.workspaceDirectory)].map(p => resolve(p)));
-  for (const folder of configured) {
+  for (const [folder, rule] of matched) {
     if (signal.aborted) break;
-    if (!known.has(folder)) {
-      reports.push({ at: new Date().toISOString(), directory: folder, outcome: "skipped", message: "Not a known Paseo project or workspace folder; child repositories were not checked" });
-      continue;
-    }
     try {
       const found: string[] = [];
       for (const candidate of await findChildRepositories(folder, signal)) {
         if (await root(candidate) === candidate) { directories.add(candidate); found.push(candidate); }
       }
-      reports.push({ at: new Date().toISOString(), directory: folder, outcome: "scanned", message: found.length
+      reports.push({ at: new Date().toISOString(), directory: folder, outcome: "scanned", message: `${found.length
         ? `Checking ${found.length} child ${found.length === 1 ? "repository" : "repositories"}: ${found.map(f => relative(folder, f)).join(", ")}`
-        : "No child Git repositories found" });
+        : "No child Git repositories found"} (rule ${rule.line})` });
     } catch (error) {
       reports.push({ at: new Date().toISOString(), directory: folder, outcome: "skipped", message: `Cannot scan for child repositories: ${(error as Error).message}` });
     }
   }
-  const excluded = await excludedPaths(settings.excludedRepos);
+  const exclusions = await compileRules(settings.excludedRepos, "excluded");
   for (const directory of [...directories]) {
-    if (!await isExcluded(directory, excluded)) continue;
+    const check = await checkerFor(exclusions, directory);
+    if (!check.rule) continue;
+    // A rule with branch patterns applies only while the checked-out branch matches.
+    const hit = check.rule.branches.length ? check.hits(await currentBranch(directory)) : check.rule;
+    if (!hit) continue;
     directories.delete(directory);
-    reports.push({ at: new Date().toISOString(), directory, outcome: "skipped", message: "skipped: excluded in settings" });
+    reports.push({ at: new Date().toISOString(), directory, outcome: "skipped", message: `skipped: excluded by rule ${hit.line}` });
   }
   for (const directory of directories) {
     if (signal.aborted) break;
@@ -109,7 +117,7 @@ export async function sweepWithApi(api: PaseoApi, daemonPid: number, settings: P
     } catch (failure) {
       let e = failure as Error, handed = "";
       if (e instanceof Resolvable && settings.agentResolve && !preview) handed = await requestAgent(api, directory, e, settings).catch(error => { e = error as Error; return ""; });
-      reports.push({ at: new Date().toISOString(), directory, outcome: handed || e instanceof ActivityBlocked ? "skipped" : "error", message: (handed || e.message).slice(0, 3000), warnings: [...warnings].slice(0, 30) });
+      reports.push({ at: new Date().toISOString(), directory, outcome: handed || e instanceof ActivityBlocked || e instanceof Excluded ? "skipped" : "error", message: (handed || e.message).slice(0, 3000), warnings: [...warnings].slice(0, 30) });
     }
   }
   if (!directories.size && initialWarnings.size) reports.push({ at: new Date().toISOString(), directory: "daemon", outcome: "error", message: "No Git repositories could be identified from the available Paseo directory data", warnings: [...initialWarnings].slice(0, 30) });

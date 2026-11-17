@@ -9,7 +9,8 @@ import { processBlocker, inside, waitingShell, type ProcessInfo } from "./proces
 import { RateLimitGate, rateLimitUntil } from "./rate-limit";
 import { Scheduler } from "./scheduler";
 import { preferences } from "../shared/contracts";
-import { interimName, protectedNames } from "./branches";
+import { interimName } from "./branches";
+import { protectedChecker } from "./rules";
 
 const agent = (id: string, parent?: string, status = "idle") => ({ id, title: id, status, pendingPermissions: [], labels: parent ? { "paseo.parent-agent-id": parent } : {}, updatedAt: new Date(0).toISOString() } as unknown as PaseoAgent);
 
@@ -124,10 +125,11 @@ test("scheduler defaults to hourly, reschedules changes and prevents overlapping
   await scheduler.stop();
 });
 
-test("protected names are exact and comma separated; prefix supports placeholder or simple prefix", () => {
+test("protected names are exact and comma separated; prefix supports placeholder or simple prefix", async () => {
   const settings = preferences.schema.parse({ protectBranches: true, protectedBranches: " main, master , release/stable, " });
-  assert.deepEqual([...protectedNames(settings)], ["main", "master", "release/stable"]);
+  const protectedNames = async (s: typeof settings) => { const check = await protectedChecker(s, "/any/repo"); return ["main", "master", "release/stable", "other"].filter(b => check.hits(b)); };
+  assert.deepEqual(await protectedNames(settings), ["main", "master", "release/stable"]);
   assert.equal(interimName(settings.interimPrefix, "master"), "overcommitted/master");
   assert.equal(interimName("auto/", "feature/a"), "auto/feature/a");
-  assert.equal(protectedNames({ ...settings, protectBranches: false }).size, 0);
+  assert.deepEqual(await protectedNames({ ...settings, protectBranches: false }), []);
 });
