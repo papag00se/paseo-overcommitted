@@ -7,7 +7,8 @@ import { symlink } from "node:fs/promises";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { git } from "./command";
 import { sweepWithApi } from "./sweep";
-import { childRepoFolders, findChildRepositories } from "./discovery";
+import { findChildRepositories } from "./discovery";
+import { rulesError } from "../shared/rules";
 import type { ProcessInfo } from "./processes";
 import { preferences, type Report } from "../shared/contracts";
 
@@ -207,7 +208,7 @@ test("child discovery skips hidden folders, node_modules and repositories nested
 test("child repository folders must be full paths", () => {
   assert.equal(preferences.schema.safeParse({ childRepoFolders: "/home/me/Work\n\n/home/me/src" }).success, true);
   assert.equal(preferences.schema.safeParse({ childRepoFolders: "/home/me/Work\nWork" }).success, false);
-  assert.deepEqual(childRepoFolders(" /a/ \n\n/b\n/a"), ["/a", "/b"]);
+  assert.equal(rulesError(" /a/ \n\n/b\n/a", "folders"), null);
 });
 
 test("excluded repositories are skipped in preview and untouched in a real check: exact, symlink alias, nested", async t => {
@@ -225,11 +226,11 @@ test("excluded repositories are skipped in preview and untouched in a real check
   for (const root of [f.child, f.sibling, f.outside, nested]) {
     const report = f.reportFor(preview, root);
     assert.equal(report.outcome, "skipped");
-    assert.equal(report.message, "skipped: excluded in settings");
+    assert.match(report.message, /^skipped: excluded by rule \//);
   }
   const real = await run(list, false, [f.child, f.sibling, f.outside, nested]);
   for (const root of [f.child, f.sibling, f.outside]) {
-    assert.equal(f.reportFor(real, root).message, "skipped: excluded in settings");
+    assert.match(f.reportFor(real, root).message, /^skipped: excluded by rule \//);
     await f.untouched(root);
   }
   // Without the setting the same repository is checked normally.

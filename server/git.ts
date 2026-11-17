@@ -2,7 +2,8 @@ import { access, lstat, mkdtemp, readFile, rename, rm, unlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { git } from "./command";
-import { protectedNames, selectInterim } from "./branches";
+import { selectInterim } from "./branches";
+import { Excluded, excludedChecker, protectedChecker } from "./rules";
 import type { Preferences } from "../shared/contracts";
 import { Resolvable } from "./agent";
 import { acquireLock } from "./lock";
@@ -84,14 +85,24 @@ const SERVER_PROTECTED = /GH006: Protected branch|protected branch hook declined
 export const refusedAsProtected = (message: string) => SERVER_PROTECTED.test(message) && !/secret/i.test(message);
 // Identity and signing problems need the user's credentials, not code changes.
 const NOT_A_CHECK = /Please tell me who you are|user\.(name|email)|gpg|signing|ssh-keygen/i;
-const isProtected = (settings: Preferences, target: Pending) => {
-  const names = protectedNames(settings);
-  return names.has(target.branch) || names.has(target.ref.replace(/^refs\/heads\//, ""));
+// Both the local name and the destination name count. Returns the matching rule line.
+const destinationNames = (target: Pending) => [target.branch, target.ref.replace(/^refs\/heads\//, "")];
+const protectedRule = async (root: string, settings: Preferences, target: Pending) => {
+  const check = await protectedChecker(settings, root);
+  return destinationNames(target).map(check.hits).find(Boolean)?.line;
 };
+// Refuses work that a never-check rule covers: the checked-out branch or any push destination.
+async function refuseExcluded(root: string, settings: Preferences, what: string, branches: string[]) {
+  const check = await excludedChecker(settings, root);
+  const rule = branches.map(check.hits).find(Boolean);
+  if (rule) throw new Excluded(`skipped: ${what} excluded by rule ${rule.line}`);
+}
 // A push that was waiting when someone switched branches: push that branch's
 // current tip. Needs no checkout, so the current branch is untouched.
 async function finishWaitingPush(root: string, pending: Pending, settings: Preferences, signal?: AbortSignal) {
-  if (isProtected(settings, pending)) throw new Error(`A waiting push of ${pending.branch} now targets a protected branch; push it manually`);
+  await refuseExcluded(root, settings, `waiting push target ${where(pending)}`, destinationNames(pending));
+  const rule = await protectedRule(root, settings, pending);
+  if (rule) throw new Error(`A waiting push of ${pending.branch} now targets a protected branch (rule ${rule}); push it manually`);
   const tip = (await git(root, ["rev-parse", "--verify", `refs/heads/${pending.branch}^{commit}`]).catch(() => {
     throw new Error(`A push was waiting for ${pending.branch}, which no longer exists. Check that its work is safe, then delete overcommitted-pending.json in the Git folder.`);
   })).trim();
@@ -100,6 +111,8 @@ async function finishWaitingPush(root: string, pending: Pending, settings: Prefe
     if (!theirs || !await isAncestor(root, tip, theirs)) throw new Error(`Work not pushed: the waiting push of ${pending.branch} failed: ${(error as Error).message}`);
   });
 }
+/** The checked-out branch, or "" on a detached HEAD or when it cannot be read. */
+export const currentBranch = async (root: string) => (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
 export interface GitResult { outcome: "pushed" | "clean" | "eligible"; message: string }
 export async function checkpoint(root: string, titles: string[], guard: () => Promise<void>, preview: boolean, settings: Preferences, signal?: AbortSignal): Promise<GitResult> {
   const common = (await git(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
@@ -116,7 +129,8 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       if (await exists(join(dir, marker))) throw new Error(`Git operation in progress (${marker})`);
     }
     if ((await git(root, ["ls-files", "-u"])).trim()) throw new Error("Unmerged paths");
-    let branch = (await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim();
+    let branch = await currentBranch(root);
+    if (branch) await refuseExcluded(root, settings, `branch ${branch}`, [branch]);
     const initialHead = (await git(root, ["rev-parse", "--verify", "HEAD" ]).catch(() => "")).trim();
     const porcelain = await git(root, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]);
     if (porcelain.split("\0").some(line => /^[12] /.test(line) && /^S/.test(line.split(" ")[2]))) throw new Error("Submodule changes require a separate commit/push; refusing a partial checkpoint");
@@ -137,7 +151,7 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       }
       return { branch: name, remote, ref: `refs/heads/${name}` };
     };
-    let target: Pending;
+    let target: Pending, protection: string | undefined;
     if (!branch) {
       if (!settings.useInterimBranch || !initialHead) throw new Error("Detached HEAD: there is no branch to push. Check out a branch, or enable “Create and push to an interim branch”.");
       if (!dirty && (await git(root, ["for-each-ref", "--count=1", "--contains", "HEAD", "refs/remotes"])).trim()) return { outcome: "clean", message: `${resumed}Detached HEAD has no changes and is already on a remote branch` };
@@ -148,17 +162,21 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       const trackingHead = (await git(root, ["rev-parse", "--verify", `refs/remotes/${where(target)}`]).catch(() => "")).trim();
       // A clean worktree can still contain commits that were never pushed.
       if (!dirty && !pending && initialHead && trackingHead === initialHead) return { outcome: resumed ? "pushed" : "clean", message: `${resumed}No changes or unpushed commits on ${branch}` };
-      if (isProtected(settings, target)) {
-        if (!settings.useInterimBranch) throw new Error(`Work not pushed: ${branch} / ${target.ref} is protected and interim branches are disabled. Enable “Create and push to an interim branch” in Overcommitted settings, or push this work manually.`);
+      await refuseExcluded(root, settings, `push target ${where(target)}`, destinationNames(target));
+      const rule = await protectedRule(root, settings, target);
+      if (rule) {
+        protection = `${branch} is protected by rule ${rule}`;
+        if (!settings.useInterimBranch) throw new Error(`Work not pushed: ${branch} / ${target.ref} is protected (rule ${rule}) and interim branches are disabled. Enable “Create and push to an interim branch” in Overcommitted settings, or push this work manually.`);
         target = await route(branch, target.remote);
       }
     }
     branch = target.branch;
-    if (preview) return { outcome: "eligible", message: `${resumed}${dirty ? "Would stage and commit all non-ignored changes, then push" : pending ? "Would retry pending push" : "Would push existing commits"} ${branch} → ${where(target)}` };
+    const because = protection ? ` (${protection})` : "";
+    if (preview) return { outcome: "eligible", message: `${resumed}${dirty ? "Would stage and commit all non-ignored changes, then push" : pending ? "Would retry pending push" : "Would push existing commits"} ${branch} → ${where(target)}${because}` };
     const check = async () => {
       if (signal?.aborted) throw new Error("Check cancelled");
       await guard();
-      if ((await git(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "")).trim() !== branch) throw new Error("Branch changed during check");
+      if (await currentBranch(root) !== branch) throw new Error("Branch changed during check");
     };
     await check();
     if ((await git(root, ["rev-parse", "--verify", "HEAD"]).catch(() => "")).trim() !== initialHead) throw new Error("HEAD changed during check");
@@ -188,7 +206,9 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
     let commit = await head(root);
     await check();
     if (await head(root) !== commit) throw new Error("HEAD moved before push");
-    if (isProtected(settings, target)) throw new Error("Refusing to push a protected branch");
+    await refuseExcluded(root, settings, `push target ${where(target)}`, destinationNames(target));
+    const finalRule = await protectedRule(root, settings, target);
+    if (finalRule) throw new Error(`Refusing to push a protected branch (rule ${finalRule})`);
     try { await pushCommit(root, target, commit, signal); } catch (rejected) {
       const message = (rejected as Error).message;
       if (settings.useInterimBranch && refusedAsProtected(message)) {
@@ -210,6 +230,6 @@ export async function checkpoint(root: string, titles: string[], guard: () => Pr
       await pushCommit(root, target, commit, signal);
     }
     await unlink(pendingPath);
-    return { outcome: "pushed", message: `${resumed}Pushed ${branch} to ${where(target)}` };
+    return { outcome: "pushed", message: `${resumed}Pushed ${branch} to ${where(target)}${because}` };
   } finally { await lock.close(); await unlink(lockPath); }
 }

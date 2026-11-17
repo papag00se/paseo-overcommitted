@@ -1,5 +1,11 @@
 import { defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+import { rulesError, type RuleKind } from "./rules";
+
+const ruleCheck = (kind: RuleKind, label: string) => (text: string, ctx: z.RefinementCtx) => {
+  const error = rulesError(text, kind);
+  if (error) ctx.addIssue({ code: "custom", message: `${label}: ${error}` });
+};
 
 export const preferences = defineSettings({
   id: "overcommitted", scope: "host", version: 1,
@@ -7,19 +13,16 @@ export const preferences = defineSettings({
     enabled: z.boolean().default(true),
     intervalMinutes: z.number().int().min(1).max(10080).default(60),
     protectBranches: z.boolean().default(false),
-    protectedBranches: z.string().default("main, master"),
+    // Rule lines `<path-glob> [<branch-glob> ...]` (see shared/rules.ts). A legacy
+    // list such as `main, master` still works and means `* main master`.
+    protectedBranches: z.string().default("* main master").superRefine(ruleCheck("protected", "Protected branches")),
     useInterimBranch: z.boolean().default(true),
     interimPrefix: z.string().trim().min(1).default("overcommitted/<current branch name>"),
-    // Newline-delimited absolute paths of known Paseo project/workspace folders
-    // whose child Git repositories are checked like registered ones.
-    childRepoFolders: z.string().default("").refine(
-      text => text.split(/\r?\n/).map(line => line.trim()).every(line => !line || line.startsWith("/")),
-      "Child repository folders must be full paths, one per line"),
-    // Newline-delimited absolute paths of repositories that are never checked
-    // (including repositories nested below them and symlinked aliases).
-    excludedRepos: z.string().default("").refine(
-      text => text.split(/\r?\n/).map(line => line.trim()).every(line => !line || line.startsWith("/")),
-      "Excluded repositories must be full paths, one per line"),
+    // Rule lines; only path globs. Each matching known Paseo project/workspace
+    // folder has its child Git repositories checked like registered ones.
+    childRepoFolders: z.string().default("").superRefine(ruleCheck("folders", "Child repository folders")),
+    // Rule lines: repositories (and branches) that are never checked or pushed to.
+    excludedRepos: z.string().default("").superRefine(ruleCheck("excluded", "Never-check rules")),
     // Automatic fixes. Each is non-destructive; when one cannot be proven
     // safe, the failure is reported instead.
     mergeRemoteAhead: z.boolean().default(true),

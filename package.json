@@ -1,6 +1,6 @@
 {
   "name": "@papagoose/overcommitted",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Idle-worktree commits and pushes with protected-branch routing for Paseo",
   "repository": {
     "type": "git",
