@@ -5,7 +5,7 @@ import { inside, processBlocker, processes, type ProcessInspector } from "./proc
 import { checkpoint } from "./git";
 import { ActivityBlocked } from "./activity";
 import { requestAgent, Resolvable } from "./agent";
-import { childRepoFolders, findChildRepositories } from "./discovery";
+import { childRepoFolders, excludedPaths, findChildRepositories, isExcluded } from "./discovery";
 import { relative, resolve } from "node:path";
 
 export async function sweep(settings: Preferences, preview: boolean, signal: AbortSignal): Promise<Report[]> {
@@ -54,6 +54,12 @@ export async function sweepWithApi(api: PaseoApi, daemonPid: number, settings: P
     } catch (error) {
       reports.push({ at: new Date().toISOString(), directory: folder, outcome: "skipped", message: `Cannot scan for child repositories: ${(error as Error).message}` });
     }
+  }
+  const excluded = await excludedPaths(settings.excludedRepos);
+  for (const directory of [...directories]) {
+    if (!await isExcluded(directory, excluded)) continue;
+    directories.delete(directory);
+    reports.push({ at: new Date().toISOString(), directory, outcome: "skipped", message: "skipped: excluded in settings" });
   }
   for (const directory of directories) {
     if (signal.aborted) break;

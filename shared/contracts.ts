@@ -15,6 +15,11 @@ export const preferences = defineSettings({
     childRepoFolders: z.string().default("").refine(
       text => text.split(/\r?\n/).map(line => line.trim()).every(line => !line || line.startsWith("/")),
       "Child repository folders must be full paths, one per line"),
+    // Newline-delimited absolute paths of repositories that are never checked
+    // (including repositories nested below them and symlinked aliases).
+    excludedRepos: z.string().default("").refine(
+      text => text.split(/\r?\n/).map(line => line.trim()).every(line => !line || line.startsWith("/")),
+      "Excluded repositories must be full paths, one per line"),
     // Automatic fixes. Each is non-destructive; when one cannot be proven
     // safe, the failure is reported instead.
     mergeRemoteAhead: z.boolean().default(true),

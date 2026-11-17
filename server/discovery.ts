@@ -1,5 +1,5 @@
-import { readdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { readdir, realpath } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 
 export const CHILD_REPO_DEPTH = 4;
 const SKIP = new Set(["node_modules"]);
@@ -7,6 +7,24 @@ const SKIP = new Set(["node_modules"]);
 /** Newline-delimited absolute folder paths; blank lines ignored. */
 export function childRepoFolders(text: string): string[] {
   return [...new Set(text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => resolve(line)))];
+}
+
+/** Never-check paths: each listed path plus its realpath, so symlinked aliases match. */
+export async function excludedPaths(text: string): Promise<string[]> {
+  const paths = new Set<string>();
+  for (const path of childRepoFolders(text)) {
+    paths.add(path);
+    const real = await realpath(path).catch(() => null);
+    if (real) paths.add(real);
+  }
+  return [...paths];
+}
+
+/** True when `directory` (or its realpath) is an excluded path or nested below one. */
+export async function isExcluded(directory: string, excluded: string[]): Promise<boolean> {
+  if (!excluded.length) return false;
+  const candidates = [resolve(directory), await realpath(directory).catch(() => null)].filter((p): p is string => !!p);
+  return candidates.some(c => excluded.some(e => c === e || c.startsWith(e.endsWith(sep) ? e : e + sep)));
 }
 
 /**

@@ -59,6 +59,12 @@ export function Settings({ theme, layout }: PluginSurfaceProps) {
             style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace" }} />
         </SettingsRow>
       </SettingsCard>
+      <SettingsCard>
+        <SettingsRow label="Never check these repositories:" hint="Full paths, one per line. A listed repository, symlinked aliases of it, and repositories nested below it are skipped by previews and real checks: nothing is staged, committed, switched or pushed there.">
+          <TextInput multiline value={values.excludedRepos} onChangeText={excludedRepos => change({ excludedRepos })} placeholder={"/home/me/Work/private-repo"} placeholderTextColor={theme.colors.foregroundMuted} autoCapitalize="none" autoCorrect={false}
+            style={{ minHeight: 88, minWidth: layout.compact ? undefined : 320, textAlignVertical: "top", color: theme.colors.foreground, backgroundColor: theme.colors.surface1, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 6, padding: 8, fontFamily: "monospace" }} />
+        </SettingsRow>
+      </SettingsCard>
       <SettingsSection title="Automatic fixes">
         <Text style={muted}>Each fix runs only when it cannot lose work. Otherwise the problem is reported under Work not pushed.</Text>
         <SettingsCard>

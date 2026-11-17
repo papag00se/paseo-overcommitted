@@ -54,7 +54,7 @@ npm run typecheck
 paseo plugin install "$PWD"
 ```
 
-Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is opt-in. In the interim prefix, `<current branch name>` is a placeholder for the protected branch's name: `overcommitted/<current branch name>` turns `main` into `overcommitted/main`. **Save settings** is at the top of the page. Leave settings with **← Back** or <kbd>Esc</kbd>.
+Open **Settings → Plugins → Overcommitted → Settings**. Start with **Preview**, inspect the eligible repositories, then use **Check now** when you are ready. Automatic checks default on; the first scheduled check happens after one interval. Branch-name protection is opt-in. To exempt repositories entirely, list their full paths under **Never check these repositories** (nested repositories and symlinked aliases are covered too). In the interim prefix, `<current branch name>` is a placeholder for the protected branch's name: `overcommitted/<current branch name>` turns `main` into `overcommitted/main`. **Save settings** is at the top of the page. Leave settings with **← Back** or <kbd>Esc</kbd>.
 
 Merging, stale-lock cleanup and finishing a waiting push each have a switch under **Automatic fixes**. Interim-branch routing for protected branches and detached HEADs is always on while interim branches are enabled. Agent help is off until you turn on **Use an agent to resolve conflicts or pre-checks** and pick a `provider/model`.
 

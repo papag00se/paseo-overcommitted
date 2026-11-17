@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, writeFile, chmod, access, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { symlink } from "node:fs/promises";
 import type { PaseoAgent, PaseoApi } from "@getpaseo/client";
 import { git } from "./command";
 import { sweepWithApi } from "./sweep";
@@ -207,4 +208,32 @@ test("child repository folders must be full paths", () => {
   assert.equal(preferences.schema.safeParse({ childRepoFolders: "/home/me/Work\n\n/home/me/src" }).success, true);
   assert.equal(preferences.schema.safeParse({ childRepoFolders: "/home/me/Work\nWork" }).success, false);
   assert.deepEqual(childRepoFolders(" /a/ \n\n/b\n/a"), ["/a", "/b"]);
+});
+
+test("excluded repositories are skipped in preview and untouched in a real check: exact, symlink alias, nested", async t => {
+  const f = await fixture(t);
+  const alias = join(f.parent, "..", "alias-of-sibling");
+  await symlink(f.sibling, alias);
+  const nested = join(f.outside, "inner");
+  await mkdir(nested, { recursive: true });
+  await git(nested, ["init", "-b", "main"]);
+  const run = (excludedRepos: string, preview: boolean, registered: string[]) =>
+    sweepWithApi(f.api([f.parentAgent], registered), daemonPid, { ...settings, excludedRepos }, preview, new AbortController().signal, async () => [f.runtime]);
+  // Exact path, plus an alias listed for another repository, plus a parent of a nested repository.
+  const list = `\n${f.child}\n  ${alias}  \n${f.outside}\n`;
+  const preview = await run(list, true, [f.child, f.sibling, f.outside, nested]);
+  for (const root of [f.child, f.sibling, f.outside, nested]) {
+    const report = f.reportFor(preview, root);
+    assert.equal(report.outcome, "skipped");
+    assert.equal(report.message, "skipped: excluded in settings");
+  }
+  const real = await run(list, false, [f.child, f.sibling, f.outside, nested]);
+  for (const root of [f.child, f.sibling, f.outside]) {
+    assert.equal(f.reportFor(real, root).message, "skipped: excluded in settings");
+    await f.untouched(root);
+  }
+  // Without the setting the same repository is checked normally.
+  assert.equal(f.reportFor(await run("", true, [f.child]), f.child).outcome, "eligible");
+  // Relative paths are rejected on save.
+  assert.equal(preferences.schema.safeParse({ excludedRepos: "relative/path" }).success, false);
 });
