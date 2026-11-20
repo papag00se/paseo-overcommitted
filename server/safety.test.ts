@@ -111,7 +111,7 @@ test("rate limits use the longest wait and persist across caller instances", asy
 test("scheduler defaults to hourly, reschedules changes and prevents overlapping runs", async () => {
   let finish!: () => void;
   const scheduler = new Scheduler(async () => { await new Promise<void>(resolve => { finish = resolve; }); return []; });
-  const settings = preferences.schema.parse({});
+  const settings = preferences.schema.parse({ enabled: true });
   scheduler.configure(settings);
   assert.ok(Math.abs(Date.parse(scheduler.nextCheck!) - Date.now() - 3600000) < 2000);
   const run = scheduler.run(true);
@@ -132,4 +132,8 @@ test("protected names are exact and comma separated; prefix supports placeholder
   assert.equal(interimName(settings.interimPrefix, "master"), "overcommitted/master");
   assert.equal(interimName("auto/", "feature/a"), "auto/feature/a");
   assert.deepEqual(await protectedNames({ ...settings, protectBranches: false }), []);
+});
+
+test("automatic commits and pushes are off until the user enables them", () => {
+  assert.equal(preferences.schema.parse({}).enabled, false);
 });
