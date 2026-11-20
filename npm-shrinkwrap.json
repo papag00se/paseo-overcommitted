@@ -1,12 +1,12 @@
 {
   "name": "@papagoose/overcommitted",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "@papagoose/overcommitted",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "dependencies": {
         "@getpaseo/client": "0.14.0"
       },

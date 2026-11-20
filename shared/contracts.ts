@@ -10,7 +10,8 @@ const ruleCheck = (kind: RuleKind, label: string) => (text: string, ctx: z.Refin
 export const preferences = defineSettings({
   id: "overcommitted", scope: "host", version: 1,
   schema: z.object({
-    enabled: z.boolean().default(true),
+    // Off until the user turns it on: a sweep stages, commits and pushes, which must be a choice.
+    enabled: z.boolean().default(false),
     intervalMinutes: z.number().int().min(1).max(10080).default(60),
     protectBranches: z.boolean().default(false),
     // Rule lines `<path-glob> [<branch-glob> ...]` (see shared/rules.ts). A legacy

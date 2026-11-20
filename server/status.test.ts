@@ -74,7 +74,7 @@ test("dismissal survives restart without resolving failed work or suppressing re
   let attempts = 0;
   const scheduler = new Scheduler(async () => { attempts++; return [report("pushed")]; }, restored);
   t.after(() => scheduler.stop());
-  scheduler.configure(preferences.schema.parse({}));
+  scheduler.configure(preferences.schema.parse({ enabled: true }));
   assert.deepEqual(scheduler.failures, []);
   await scheduler.run(false);
   assert.equal(attempts, 1, "acknowledging the UI must not stop the next push attempt");
@@ -132,7 +132,7 @@ test("scheduler persists daemon errors and schedules a later retry instead of ca
     return [];
   }, store);
   t.after(() => scheduler.stop());
-  await scheduler.restore(); scheduler.configure(preferences.schema.parse({}));
+  await scheduler.restore(); scheduler.configure(preferences.schema.parse({ enabled: true }));
   await assert.rejects(scheduler.run(false), /connection lost/);
   assert.ok(scheduler.nextCheck);
   const restored = new StatusStore(file); await restored.load();
